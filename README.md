@@ -38,6 +38,7 @@ apps/
 
 packages/
   core/     Domain types, config, classifier, execution planning
+  db/       SQLite and Drizzle persistence adapters
   providers/ Provider adapter contracts and implementations
   git/      Git helper utilities
   github/   GitHub issue and pull request integration
@@ -65,7 +66,11 @@ See [docs/opentop-project-context-and-memory.md](docs/opentop-project-context-an
 pnpm install
 pnpm build
 pnpm --filter @opentop/cli dev -- status
+pnpm --filter @opentop/cli dev -- tickets create --title "Fix login button" --labels bug
+pnpm --filter @opentop/cli dev -- tickets list
+pnpm --filter @opentop/cli dev -- classify 1
 pnpm --filter @opentop/cli dev -- classify --title "Fix login button" --labels bug
+pnpm --filter @opentop/cli dev -- prompt 1
 pnpm --filter @opentop/cli dev -- prompt --title "Fix login button" --labels bug
 ```
 

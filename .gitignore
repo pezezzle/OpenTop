@@ -135,6 +135,7 @@ dist
 .opentop/opentop.local.yml
 .opentop/secrets.*
 .opentop/private/
+.opentop/state/
 
 # yarn v3
 .pnp.*

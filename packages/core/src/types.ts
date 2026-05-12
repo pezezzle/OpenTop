@@ -18,6 +18,15 @@ export interface Ticket {
   classification?: Classification;
 }
 
+export interface TicketCreateInput {
+  source: TicketSource;
+  externalId?: string;
+  title: string;
+  description: string;
+  labels: string[];
+  status?: TicketStatus;
+}
+
 export interface Classification {
   risk: RiskLevel;
   complexity: ComplexityLevel;

@@ -1,8 +1,8 @@
 # OpenTop Known Issues
 
-## No persistent ticket store yet
+## Execution store is not implemented yet
 
-The current CLI can classify manually provided ticket input, but `classify <id>` is not yet backed by a local database.
+Tickets are now stored locally in SQLite, but execution records and prompt history are not persisted yet.
 
 ## Execution is not fully implemented yet
 

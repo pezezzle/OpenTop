@@ -3,12 +3,17 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { Command } from "commander";
 import {
   buildAgentPrompt,
-  classifyTicket,
+  buildPromptForStoredTicket,
+  classifyStoredTicket,
+  createTicket,
   createExecutionPlan,
+  listTickets,
   loadOpenTopConfig,
   loadOpenTopProjectContext,
+  planExecutionForStoredTicket,
   type Ticket
 } from "@opentop/core";
+import { createSqliteTicketRepository } from "@opentop/db";
 import { getRepositoryStatus } from "@opentop/git";
 
 const program = new Command();
@@ -67,62 +72,142 @@ program
   .command("status")
   .description("Show repository and OpenTop config status")
   .action(async () => {
-    const [config, repository] = await Promise.all([loadOpenTopConfig(), getRepositoryStatus()]);
+    const [config, repositoryStatus, ticketRepository] = await Promise.all([
+      loadOpenTopConfig(),
+      getRepositoryStatus(),
+      createSqliteTicketRepository()
+    ]);
+    const tickets = await listTickets(ticketRepository);
 
     console.log(`Project: ${config.project.name}`);
     console.log(`Default branch: ${config.project.defaultBranch}`);
-    console.log(`Current branch: ${repository.currentBranch}`);
-    console.log(`Working tree: ${repository.isClean ? "clean" : "dirty"}`);
+    console.log(`Current branch: ${repositoryStatus.currentBranch}`);
+    console.log(`Working tree: ${repositoryStatus.isClean ? "clean" : "dirty"}`);
+    console.log(`Stored tickets: ${tickets.length}`);
+  });
+
+const ticketsCommand = program.command("tickets").description("Manage locally stored OpenTop tickets");
+
+ticketsCommand
+  .command("create")
+  .description("Create a local ticket in the OpenTop SQLite store")
+  .requiredOption("--title <title>", "Ticket title")
+  .option("--description <description>", "Ticket description", "")
+  .option("--labels <labels>", "Comma-separated ticket labels", "")
+  .option("--source <source>", "Ticket source", "manual")
+  .option("--external-id <externalId>", "External ticket ID")
+  .option("--json", "Print the created ticket as JSON")
+  .action(
+    async (options: {
+      title: string;
+      description: string;
+      labels: string;
+      source: Ticket["source"];
+      externalId?: string;
+      json?: boolean;
+    }) => {
+      const repository = await createSqliteTicketRepository();
+      const ticket = await createTicket(repository, {
+        source: options.source,
+        externalId: options.externalId,
+        title: options.title,
+        description: options.description,
+        labels: parseLabels(options.labels)
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(ticket, null, 2));
+        return;
+      }
+
+      console.log(`Created ticket ${ticket.id}: ${ticket.title}`);
+    }
+  );
+
+ticketsCommand
+  .command("list")
+  .description("List locally stored OpenTop tickets")
+  .option("--json", "Print stored tickets as JSON")
+  .action(async (options: { json?: boolean }) => {
+    const repository = await createSqliteTicketRepository();
+    const tickets = await listTickets(repository);
+
+    if (options.json) {
+      console.log(JSON.stringify(tickets, null, 2));
+      return;
+    }
+
+    if (tickets.length === 0) {
+      console.log("No local tickets found.");
+      return;
+    }
+
+    for (const ticket of tickets) {
+      console.log(`#${ticket.id} [${ticket.status}] ${ticket.title}`);
+    }
   });
 
 program
   .command("classify")
-  .description("Classify a ticket from command-line input")
+  .description("Classify a stored ticket by ID or manual command-line input")
+  .argument("[ticketId]", "Stored ticket ID")
   .option("--title <title>", "Ticket title", "Untitled ticket")
   .option("--description <description>", "Ticket description", "")
   .option("--labels <labels>", "Comma-separated ticket labels", "")
-  .action(async (options: { title: string; description: string; labels: string }) => {
+  .action(async (ticketId: string | undefined, options: { title: string; description: string; labels: string }) => {
     const config = await loadOpenTopConfig();
-    const ticket = createManualTicket(options.title, options.description, options.labels);
-    const classification = classifyTicket(ticket, config);
-    const plan = createExecutionPlan({ ...ticket, classification }, config);
 
-    console.log(JSON.stringify({ classification, executionPlan: plan }, null, 2));
+    if (ticketId) {
+      const repository = await createSqliteTicketRepository();
+      const result = await classifyStoredTicket(repository, config, ticketId);
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    const ticket = createManualTicket(options.title, options.description, options.labels);
+    const plan = createExecutionPlan(ticket, config);
+    console.log(JSON.stringify({ classification: plan.classification, executionPlan: plan }, null, 2));
   });
 
 program
   .command("prompt")
-  .description("Build a controlled agent prompt from command-line ticket input")
+  .description("Build a controlled agent prompt from a stored ticket ID or manual command-line input")
+  .argument("[ticketId]", "Stored ticket ID")
   .option("--title <title>", "Ticket title", "Untitled ticket")
   .option("--description <description>", "Ticket description", "")
   .option("--labels <labels>", "Comma-separated ticket labels", "")
   .option("--json", "Print prompt metadata as JSON")
-  .action(async (options: { title: string; description: string; labels: string; json?: boolean }) => {
+  .action(
+    async (
+      ticketId: string | undefined,
+      options: { title: string; description: string; labels: string; json?: boolean }
+    ) => {
     const [config, projectContext] = await Promise.all([loadOpenTopConfig(), loadOpenTopProjectContext()]);
-    const ticket = createManualTicket(options.title, options.description, options.labels);
-    const classification = classifyTicket(ticket, config);
-    const builtPrompt = buildAgentPrompt({
-      ticket: { ...ticket, classification },
-      config,
-      projectContext
-    });
 
-    if (options.json) {
-      console.log(JSON.stringify(builtPrompt, null, 2));
-      return;
+      const builtPrompt = ticketId
+        ? await buildPromptForStoredTicket(await createSqliteTicketRepository(), config, projectContext, ticketId)
+        : buildAgentPrompt({
+            ticket: createManualTicket(options.title, options.description, options.labels),
+            config,
+            projectContext
+          });
+
+      if (options.json) {
+        console.log(JSON.stringify(builtPrompt, null, 2));
+        return;
+      }
+
+      console.log(builtPrompt.prompt);
     }
-
-    console.log(builtPrompt.prompt);
-  });
+  );
 
 program
   .command("run")
   .description("Prepare an execution plan for a ticket")
   .argument("<ticketId>", "Ticket ID")
   .action(async (ticketId: string) => {
-    const config = await loadOpenTopConfig();
-    const ticket = createManualTicket(`Manual ticket ${ticketId}`, "", "");
-    const plan = createExecutionPlan(ticket, config);
+    const [config, repository] = await Promise.all([loadOpenTopConfig(), createSqliteTicketRepository()]);
+    const plan = await planExecutionForStoredTicket(repository, config, ticketId);
 
     console.log(JSON.stringify(plan, null, 2));
   });
@@ -138,10 +223,14 @@ function createManualTicket(title: string, description: string, labels: string):
     source: "manual",
     title,
     description,
-    labels: labels
-      .split(",")
-      .map((label) => label.trim())
-      .filter(Boolean),
+    labels: parseLabels(labels),
     status: "inbox"
   };
+}
+
+function parseLabels(labels: string): string[] {
+  return labels
+    .split(",")
+    .map((label) => label.trim())
+    .filter(Boolean);
 }

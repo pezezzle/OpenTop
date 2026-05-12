@@ -25,7 +25,28 @@ pnpm build
 pnpm --filter @opentop/cli dev -- status
 ```
 
+## Create and List Tickets
+
+```bash
+pnpm --filter @opentop/cli dev -- tickets create \
+  --title "Fix login button layout" \
+  --description "The login button is misaligned on mobile" \
+  --labels bug
+```
+
+```bash
+pnpm --filter @opentop/cli dev -- tickets list
+```
+
 ## Classify a Ticket
+
+Stored ticket by ID:
+
+```bash
+pnpm --filter @opentop/cli dev -- classify 1
+```
+
+Manual command-line input:
 
 ```bash
 pnpm --filter @opentop/cli dev -- classify \
@@ -35,6 +56,14 @@ pnpm --filter @opentop/cli dev -- classify \
 ```
 
 ## Build a Controlled Prompt
+
+Stored ticket by ID:
+
+```bash
+pnpm --filter @opentop/cli dev -- prompt 1
+```
+
+Manual command-line input:
 
 ```bash
 pnpm --filter @opentop/cli dev -- prompt \
