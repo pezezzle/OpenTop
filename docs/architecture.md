@@ -1,104 +1,312 @@
-# OpenTop Architecture
+# OpenTop Target Architecture
 
-## System Boundary
-
-OpenTop sits between issue trackers and coding agents.
+OpenTop is the control plane between ticket systems and AI coding agents. Its architecture is built around one rule:
 
 ```text
-GitHub Issues / Manual Tickets
--> OpenTop CLI / API / Web
--> Core classifier and router
--> Provider adapter
--> Local repository branch
--> Checks and draft PR
+CLI, API, and Web contain no business logic.
 ```
 
-## Monorepo Layout
+They are entry points. The product logic belongs in `packages/core` and is exposed through application services.
+
+## System Flow
 
 ```text
-apps/
-  cli/      User-facing local commands
-  api/      Local Fastify API
-  web/      Board and execution UI
-
-packages/
-  core/     Domain model, config, routing, classification, execution planning
-  providers/ AI provider adapter contracts and starter adapters
-  git/      Local repository operations
-  github/   GitHub issue import and PR integration
-  shared/   Shared constants and primitive types
+Ticket Sources
+GitHub / Manual / Linear / Jira
+        |
+        v
+Ticket Repository
+SQLite first, PostgreSQL later
+        |
+        v
+Classifier
+Rules first, optional AI later
+        |
+        v
+Router
+Agent profile, model tier, approval policy
+        |
+        v
+Prompt Builder
+Controlled agent prompt from ticket, profile, rules, and project context
+        |
+        v
+Execution Engine
+Branch, provider run, logs, checks
+        |
+        v
+Review Output
+Changed files, draft PR, human approval
 ```
 
-## Core Domain
+## Package Boundaries
 
-### Ticket
+```text
+apps/cli
+apps/api
+apps/web
+        |
+        v
+packages/core
+        |
+        v
+packages/db
+packages/providers
+packages/git
+packages/github
+packages/shared
+```
 
-A ticket is the normalized unit of work. It can come from GitHub Issues, manual input, or later from Linear, Jira, Trello, or Azure DevOps.
+The dependency direction should stay simple: apps depend on core services, and core depends on interfaces. Technical adapters implement those interfaces.
 
-### Classification
+## Applications
 
-A classification describes how OpenTop understands the ticket:
+### `apps/cli`
 
-- Risk
-- Complexity
-- Affected areas
-- Suggested agent profile
-- Suggested model tier
-- Suggested execution mode
-- Approval requirement
-- Reason
+The CLI is a terminal entry point.
 
-### Agent Profile
+It may:
 
-An agent profile defines how an execution should behave. It includes the model tier, execution mode, approval requirement, and allowed commands.
+- Parse command-line arguments.
+- Load configuration.
+- Call core application services.
+- Print human-readable output or JSON.
 
-### Execution
+It must not:
 
-An execution is the controlled run of an agent against a ticket. It tracks branch name, provider, model, status, logs, changed files, and pull request URL.
+- Classify tickets directly.
+- Build prompts directly.
+- Decide routing or approval rules directly.
+- Talk to SQLite, GitHub, or providers without going through the intended service boundary.
 
-## Routing Strategy
+### `apps/api`
 
-Version `0.1` starts with transparent rules:
+The API is the local HTTP entry point for the Web UI and future integrations.
 
-- Labels can route simple work such as bugs to a cheaper profile.
-- Keywords such as `auth`, `security`, and `migration` route to high-risk architecture profiles.
-- A default rule handles everything else.
+It may:
 
-AI-assisted classification can be added later, but the first layer should stay testable and explainable.
+- Expose Fastify routes.
+- Validate HTTP input.
+- Call core application services.
+- Return JSON responses.
 
-## Provider Strategy
+It must not own domain decisions. The same operation should behave the same whether it is triggered through CLI, API, or Web.
 
-Provider adapters implement one contract:
+### `apps/web`
+
+The Web app is the visual control plane.
+
+It may:
+
+- Show tickets, classifications, approvals, executions, logs, and pull request links.
+- Trigger API calls.
+- Let humans approve or override suggested routes.
+
+It must not duplicate classifier, router, or execution behavior.
+
+## Core Package
+
+`packages/core` contains the OpenTop domain and orchestration logic. It should stay independent from SQLite, GitHub, Next.js, Fastify, and concrete provider SDKs.
+
+It owns:
+
+- `Ticket`
+- `Classification`
+- `AgentProfile`
+- `Execution`
+- `ExecutionPlan`
+- `Classifier`
+- `Router`
+- `PromptBuilder`
+- `ExecutionPolicy`
+- Application service interfaces
+
+Core should define what the system needs, not how infrastructure implements it.
+
+## Application Services
+
+OpenTop should introduce application services early so CLI, API, and Web share the same workflows.
+
+Initial services:
+
+- `TicketService`
+- `ClassificationService`
+- `ExecutionService`
+- `PromptService`
+
+Example operations:
 
 ```ts
-export interface AiProviderAdapter {
-  id: string;
-  run(request: AgentRunRequest): Promise<AgentRunResult>;
+classificationService.classifyTicket(ticketId);
+executionService.planExecution(ticketId);
+executionService.runExecution(ticketId);
+promptService.buildPrompt(ticketId);
+```
+
+These services coordinate domain logic and call infrastructure through interfaces.
+
+## Ports and Adapters
+
+OpenTop follows a ports-and-adapters shape.
+
+```text
+Core says what is needed.
+Adapters say how it is done.
+```
+
+Example core interface:
+
+```ts
+export interface TicketRepository {
+  findById(id: string): Promise<Ticket | null>;
+  save(ticket: Ticket): Promise<void>;
 }
 ```
 
-The first practical adapters are:
+The core package can use `TicketRepository` without knowing whether tickets are stored in SQLite, PostgreSQL, or imported from GitHub.
 
-- `custom-shell`
-- `codex-cli`
+This keeps later changes contained:
 
-API-based providers can be added behind the same interface.
+- SQLite can become PostgreSQL.
+- GitHub can be joined by Linear or Jira.
+- Codex CLI can be joined by OpenAI API, Claude Code, OpenRouter, or Ollama.
+- Local execution can later move to workers.
+
+## Infrastructure Packages
+
+### `packages/db`
+
+Database access lives here, not in apps.
+
+It will contain:
+
+- SQLite connection.
+- Drizzle schema.
+- Migrations.
+- `TicketRepository` implementation.
+- `ExecutionRepository` implementation.
+
+`packages/core` should not import Drizzle or know SQLite exists.
+
+### `packages/providers`
+
+Provider adapters execute AI coding agents.
+
+It contains:
+
+- Provider adapter interface.
+- Codex CLI adapter.
+- Custom shell adapter.
+- Later OpenAI API adapter.
+- Later Claude Code adapter.
+- Later Ollama/OpenRouter adapters.
+
+All providers should return normalized results: success, summary, logs, changed files, and risks.
+
+### `packages/git`
+
+Local Git operations live here.
+
+It contains:
+
+- Repository status.
+- Clean working tree checks.
+- Branch creation.
+- Changed file detection.
+- Diff summary helpers.
+
+### `packages/github`
+
+GitHub-specific integration lives here.
+
+It contains:
+
+- GitHub Issue import.
+- Draft pull request creation.
+- Pull request link updates.
+- Later status/comment synchronization.
+
+### `packages/shared`
+
+Shared primitive types and constants live here. It should stay small and avoid becoming a dumping ground for business logic.
+
+## Project Context and Memory
+
+Project context is an architecture component, but it is not the whole architecture.
+
+Each target project can provide OpenTop context through `.opentop/`:
+
+```text
+.opentop/
+  opentop.yml
+  project-context.md
+  rules.md
+  memory/
+  prompts/
+  templates/
+```
+
+The purpose is to help the `PromptBuilder` create controlled prompts from:
+
+- Ticket content.
+- Classification.
+- Agent profile.
+- Routing decision.
+- Project rules.
+- Relevant project documentation.
+- Memory such as decisions, conventions, risks, and glossary terms.
+
+OpenTop should not duplicate a project's full `docs/` folder. It should reference important documentation and carry the execution context agents need.
 
 ## Execution Pipeline
+
+The final execution pipeline should look like this:
 
 ```text
 load config
 -> load ticket
 -> classify ticket
--> build execution plan
+-> route profile/model/mode
+-> build controlled prompt
 -> require approval when needed
--> create branch
--> run provider
+-> ensure repository state is acceptable
+-> create isolated branch
+-> run provider adapter
 -> collect logs and changed files
 -> run configured checks
 -> create draft PR
+-> store execution result
 ```
+
+No direct pushes to the default branch are part of the MVP.
+
+## MVP Build Order
+
+The next implementation steps should follow this order:
+
+1. Add `packages/db`.
+2. Define repository interfaces in `packages/core`.
+3. Implement SQLite/Drizzle repositories in `packages/db`.
+4. Add `TicketService` and `ClassificationService`.
+5. Make `classify <id>` load a stored ticket.
+6. Add `PromptBuilder`.
+7. Make `run <id>` produce a prompt and execution plan.
+8. Add real Git branch creation.
+9. Execute provider adapters.
+10. Run configured checks.
+11. Create draft pull requests.
+
+This order keeps the architecture clean while still moving toward a usable local MVP.
 
 ## MVP Constraints
 
-Version `0.1` intentionally avoids multi-user SaaS concerns, billing, role management, cloud workers, a plugin marketplace, and perfect sandboxing. The first product must prove the local control-plane workflow.
+Version `0.1` intentionally avoids:
+
+- Multi-user SaaS.
+- Billing.
+- Role and permission systems.
+- Cloud workers.
+- Plugin marketplace complexity.
+- Perfect sandboxing.
+
+The first product must prove the local control-plane workflow before expanding outward.

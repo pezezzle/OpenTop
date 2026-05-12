@@ -47,6 +47,12 @@ docs/       Product and architecture documentation
 .opentop/   Example project configuration
 ```
 
+## Architecture
+
+OpenTop keeps business logic out of `apps/cli`, `apps/api`, and `apps/web`. Those apps are entry points only. The domain and orchestration logic live in `packages/core`, while database, provider, Git, and GitHub integrations are adapters around that core.
+
+See [docs/architecture.md](docs/architecture.md) for the target architecture and MVP build order.
+
 ## Quick Start
 
 ```bash
