@@ -131,6 +131,11 @@ dist
 # Turborepo
 .turbo
 
+# OpenTop local/private project context
+.opentop/opentop.local.yml
+.opentop/secrets.*
+.opentop/private/
+
 # yarn v3
 .pnp.*
 .yarn/*

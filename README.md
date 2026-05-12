@@ -53,6 +53,12 @@ OpenTop keeps business logic out of `apps/cli`, `apps/api`, and `apps/web`. Thos
 
 See [docs/architecture.md](docs/architecture.md) for the target architecture and MVP build order.
 
+## Project Context
+
+OpenTop projects can provide execution context through `.opentop/`: project context, rules, memory files, prompt templates, and pull request templates. Public defaults belong in the repository; local overrides and secrets stay ignored.
+
+See [docs/opentop-project-context-and-memory.md](docs/opentop-project-context-and-memory.md) for the structure and rules.
+
 ## Quick Start
 
 ```bash
