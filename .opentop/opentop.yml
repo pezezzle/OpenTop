@@ -1,0 +1,76 @@
+project:
+  name: OpenTop
+  defaultBranch: main
+
+providers:
+  codex:
+    type: codex-cli
+    command: codex
+
+  shell:
+    type: custom-shell
+    command: echo
+
+models:
+  cheap:
+    provider: codex
+    model: gpt-5.3
+
+  strong:
+    provider: codex
+    model: gpt-5.5-thinking
+
+  local:
+    provider: codex
+    model: gpt-5-codex
+
+agentProfiles:
+  bugfix:
+    description: Small isolated bug fixes
+    modelTier: cheap
+    mode: implement_and_test
+    requiresApproval: false
+    allowedCommands:
+      - pnpm test
+      - pnpm build
+
+  feature:
+    description: Standard feature implementation
+    modelTier: strong
+    mode: plan_then_implement
+    requiresApproval: true
+    allowedCommands:
+      - pnpm test
+      - pnpm build
+
+  architecture:
+    description: High-risk architecture decisions
+    modelTier: strong
+    mode: plan_only
+    requiresApproval: true
+    allowedCommands:
+      - pnpm test
+      - pnpm build
+
+routing:
+  rules:
+    - when:
+        labels:
+          - bug
+      profile: bugfix
+
+    - when:
+        keywords:
+          - architecture
+          - auth
+          - security
+          - migration
+          - multi-tenant
+      profile: architecture
+
+    - default:
+        profile: feature
+
+commands:
+  test: pnpm test
+  build: pnpm build
