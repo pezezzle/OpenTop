@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 import { mkdir, writeFile } from "node:fs/promises";
 import { Command } from "commander";
-import { classifyTicket, createExecutionPlan, loadOpenTopConfig, type Ticket } from "@opentop/core";
+import {
+  buildAgentPrompt,
+  classifyTicket,
+  createExecutionPlan,
+  loadOpenTopConfig,
+  loadOpenTopProjectContext,
+  type Ticket
+} from "@opentop/core";
 import { getRepositoryStatus } from "@opentop/git";
 
 const program = new Command();
@@ -81,6 +88,31 @@ program
     const plan = createExecutionPlan({ ...ticket, classification }, config);
 
     console.log(JSON.stringify({ classification, executionPlan: plan }, null, 2));
+  });
+
+program
+  .command("prompt")
+  .description("Build a controlled agent prompt from command-line ticket input")
+  .option("--title <title>", "Ticket title", "Untitled ticket")
+  .option("--description <description>", "Ticket description", "")
+  .option("--labels <labels>", "Comma-separated ticket labels", "")
+  .option("--json", "Print prompt metadata as JSON")
+  .action(async (options: { title: string; description: string; labels: string; json?: boolean }) => {
+    const [config, projectContext] = await Promise.all([loadOpenTopConfig(), loadOpenTopProjectContext()]);
+    const ticket = createManualTicket(options.title, options.description, options.labels);
+    const classification = classifyTicket(ticket, config);
+    const builtPrompt = buildAgentPrompt({
+      ticket: { ...ticket, classification },
+      config,
+      projectContext
+    });
+
+    if (options.json) {
+      console.log(JSON.stringify(builtPrompt, null, 2));
+      return;
+    }
+
+    console.log(builtPrompt.prompt);
   });
 
 program

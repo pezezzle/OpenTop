@@ -8,6 +8,6 @@ The current CLI can classify manually provided ticket input, but `classify <id>`
 
 The current `run` command prepares a plan but does not yet create a real branch, run a provider, execute checks, or open a draft pull request.
 
-## Project context is not loaded by code yet
+## Project context is not used by real executions yet
 
-The `.opentop/project-context.md`, `.opentop/rules.md`, memory files, prompt templates, and PR template are now documented structure. The PromptBuilder still needs to load and use them.
+The `prompt` CLI command loads `.opentop/project-context.md`, `.opentop/rules.md`, memory files, prompt templates, and the PR template. Real provider executions still need to consume generated prompts.

@@ -67,7 +67,7 @@ export async function loadOpenTopConfig(path?: string): Promise<OpenTopConfig> {
   return openTopConfigSchema.parse(parse(raw));
 }
 
-async function findOpenTopConfig(startDirectory = process.cwd()): Promise<string> {
+export async function findOpenTopConfig(startDirectory = process.cwd()): Promise<string> {
   let currentDirectory = resolve(startDirectory);
   const { root } = parsePath(currentDirectory);
 
@@ -85,6 +85,10 @@ async function findOpenTopConfig(startDirectory = process.cwd()): Promise<string
       currentDirectory = dirname(currentDirectory);
     }
   }
+}
+
+export async function findOpenTopDirectory(startDirectory = process.cwd()): Promise<string> {
+  return dirname(await findOpenTopConfig(startDirectory));
 }
 
 export function getAgentProfile(config: OpenTopConfig, id: string) {

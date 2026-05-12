@@ -59,3 +59,24 @@ export interface ExecutionPlan {
   modelId: string;
   branchName: string;
 }
+
+export interface OpenTopProjectContext {
+  rootDirectory: string;
+  projectContext?: string;
+  rules?: string;
+  memory: Record<string, string>;
+  prompts: Record<string, string>;
+  pullRequestTemplate?: string;
+}
+
+export interface PromptBuildInput {
+  ticket: Ticket;
+  config: import("./config.js").OpenTopConfig;
+  projectContext: OpenTopProjectContext;
+}
+
+export interface BuiltPrompt {
+  prompt: string;
+  executionPlan: ExecutionPlan;
+  sources: string[];
+}

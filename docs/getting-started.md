@@ -34,6 +34,26 @@ pnpm --filter @opentop/cli dev -- classify \
   --labels bug
 ```
 
+## Build a Controlled Prompt
+
+```bash
+pnpm --filter @opentop/cli dev -- prompt \
+  --title "Fix login button layout" \
+  --description "The login button is misaligned on mobile" \
+  --labels bug
+```
+
+This reads `.opentop/opentop.yml`, `.opentop/project-context.md`, `.opentop/rules.md`, `.opentop/memory/*`, and the matching prompt template from `.opentop/prompts/`.
+
+Use JSON output when you want the execution plan and source list as structured data:
+
+```bash
+pnpm --filter @opentop/cli dev -- prompt \
+  --title "Fix login button layout" \
+  --labels bug \
+  --json
+```
+
 ## Start the API
 
 ```bash

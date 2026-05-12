@@ -66,6 +66,7 @@ pnpm install
 pnpm build
 pnpm --filter @opentop/cli dev -- status
 pnpm --filter @opentop/cli dev -- classify --title "Fix login button" --labels bug
+pnpm --filter @opentop/cli dev -- prompt --title "Fix login button" --labels bug
 ```
 
 ## Claim

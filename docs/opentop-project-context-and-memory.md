@@ -200,3 +200,5 @@ The technical implementation should proceed in this order:
 4. Include allowed commands and execution mode in generated prompts.
 5. Add CLI output for generated prompts.
 6. Use generated prompts in real executions.
+
+Steps 1 through 5 are implemented for command-line ticket input. Step 6 is still pending because real executions are not wired to providers yet.
