@@ -93,6 +93,56 @@ opentop --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox status
 
 Use `pnpm web` to start the board on port `3000` and `pnpm api` to start the local API.
 
+For an interactive CLI entrypoint:
+
+```bash
+opentop start
+opentop settings
+```
+
+`opentop start` opens a simple interactive console for status, tickets, executions, and settings. `opentop settings` opens the settings menu directly.
+
+## Branch Policy
+
+OpenTop resolves branch behavior from config instead of requiring a flag on every run.
+
+Project-level config in `.opentop/opentop.yml`:
+
+```yaml
+execution:
+  defaultBranchPolicy: reuse-current
+```
+
+Optional user-level default on your machine:
+
+```text
+C:\Users\<you>\.opentop\config.yml
+```
+
+```yaml
+execution:
+  defaultBranchPolicy: new
+```
+
+Priority:
+
+```text
+CLI override
+-> project config
+-> user config
+-> built-in default (reuse-current)
+```
+
+`reuse-current` never blindly works on the default branch. If you are on `main`, OpenTop resolves to an isolated execution branch. If the working tree is dirty, `run` is blocked.
+
+You can also inspect and change the setting directly:
+
+```bash
+opentop config get execution.defaultBranchPolicy
+opentop config set execution.defaultBranchPolicy new --scope project
+opentop config set execution.defaultBranchPolicy reuse-current --scope user
+```
+
 ## Claim
 
 ```text

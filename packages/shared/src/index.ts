@@ -15,4 +15,5 @@ export type ExecutionMode =
   | "fix_build"
   | "draft_pr";
 
+export type ExecutionBranchPolicy = "new" | "reuse-current" | "manual" | "none";
 export type ExecutionStatus = "planned" | "queued" | "running" | "succeeded" | "failed" | "cancelled";

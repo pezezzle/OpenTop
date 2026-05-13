@@ -74,3 +74,6 @@ routing:
 commands:
   test: pnpm test
   build: pnpm build
+
+execution:
+  defaultBranchPolicy: reuse-current

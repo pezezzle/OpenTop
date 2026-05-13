@@ -121,6 +121,57 @@ opentop --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox status
 opentop --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox tickets list
 ```
 
+Interactive CLI:
+
+```bash
+opentop start
+opentop settings
+```
+
+## Configure Branch Policy
+
+Project-wide policy belongs in `.opentop/opentop.yml`:
+
+```yaml
+execution:
+  defaultBranchPolicy: reuse-current
+```
+
+Optional personal default on your machine:
+
+```text
+C:\Users\<you>\.opentop\config.yml
+```
+
+```yaml
+execution:
+  defaultBranchPolicy: new
+```
+
+Resolution order:
+
+```text
+--branch-policy
+-> project config
+-> user config
+-> built-in default (reuse-current)
+```
+
+Behavior:
+
+- `reuse-current` reuses your current branch when it is not the default branch.
+- `reuse-current` falls back to a fresh execution branch when you are on the default branch.
+- `manual` blocks `run` until you override it or change config.
+- dirty working trees block `run`.
+
+Scriptable config commands:
+
+```bash
+opentop config get execution.defaultBranchPolicy
+opentop config set execution.defaultBranchPolicy new --scope project
+opentop config set execution.defaultBranchPolicy reuse-current --scope user
+```
+
 ## Start the API
 
 ```bash

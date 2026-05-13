@@ -1,5 +1,6 @@
 import type {
   ComplexityLevel,
+  ExecutionBranchPolicy,
   ExecutionMode,
   ExecutionStatus,
   RiskLevel,
@@ -87,6 +88,22 @@ export interface ExecutionPlan {
   branchName: string;
 }
 
+export type ExecutionBranchDecision = "new" | "reuse-current" | "none" | "blocked";
+
+export interface RepositoryState {
+  currentBranch: string;
+  isClean: boolean;
+  changedFiles: string[];
+}
+
+export interface ExecutionBranchResolution {
+  policy: ExecutionBranchPolicy;
+  decision: ExecutionBranchDecision;
+  branchName?: string;
+  reason: string;
+  repositoryState: RepositoryState;
+}
+
 export interface OpenTopProjectContext {
   rootDirectory: string;
   projectContext?: string;
@@ -100,6 +117,7 @@ export interface PromptBuildInput {
   ticket: Ticket;
   config: import("./config.js").OpenTopConfig;
   projectContext: OpenTopProjectContext;
+  executionPlan?: ExecutionPlan;
 }
 
 export interface BuiltPrompt {
@@ -107,3 +125,17 @@ export interface BuiltPrompt {
   executionPlan: ExecutionPlan;
   sources: string[];
 }
+
+export type PreparedExecutionResult =
+  | {
+      status: "blocked";
+      executionPlan: ExecutionPlan;
+      branchResolution: ExecutionBranchResolution;
+    }
+  | {
+      status: "planned";
+      execution: Execution;
+      executionPlan: ExecutionPlan;
+      sources: string[];
+      branchResolution: ExecutionBranchResolution;
+    };

@@ -2,7 +2,7 @@ import { createExecutionPlan } from "./execution.js";
 import type { BuiltPrompt, OpenTopProjectContext, PromptBuildInput } from "./types.js";
 
 export function buildAgentPrompt(input: PromptBuildInput): BuiltPrompt {
-  const executionPlan = createExecutionPlan(input.ticket, input.config);
+  const executionPlan = input.executionPlan ?? createExecutionPlan(input.ticket, input.config);
   const templateName = resolvePromptTemplateName(executionPlan.profile.id, executionPlan.profile.mode, input.projectContext);
   const template = input.projectContext.prompts[templateName];
   const sections = buildRelevantSections(input.projectContext, template, input.ticket.title, input.ticket.description);

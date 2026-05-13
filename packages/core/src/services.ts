@@ -1,3 +1,5 @@
+import type { ExecutionBranchPolicy } from "@opentop/shared";
+import { resolveExecutionBranch } from "./branch-policy.js";
 import { classifyTicket } from "./classifier.js";
 import type { OpenTopConfig } from "./config.js";
 import { createExecutionPlan } from "./execution.js";
@@ -9,6 +11,8 @@ import type {
   Execution,
   ExecutionPlan,
   OpenTopProjectContext,
+  PreparedExecutionResult,
+  RepositoryState,
   Ticket,
   TicketCreateInput
 } from "./types.js";
@@ -68,26 +72,52 @@ export async function createPlannedExecutionForStoredTicket(
   executionRepository: ExecutionRepository,
   config: OpenTopConfig,
   projectContext: OpenTopProjectContext,
-  ticketId: string
-): Promise<{ execution: Execution; executionPlan: ExecutionPlan; sources: string[] }> {
-  const builtPrompt = await buildPromptForStoredTicket(ticketRepository, config, projectContext, ticketId);
+  ticketId: string,
+  repositoryState: RepositoryState,
+  branchPolicyOverride?: ExecutionBranchPolicy
+): Promise<PreparedExecutionResult> {
+  const ticket = await getRequiredTicket(ticketRepository, ticketId);
+  const classification = classifyTicket(ticket, config);
+  const baseExecutionPlan = createExecutionPlan({ ...ticket, classification }, config);
+  const branchResolution = resolveExecutionBranch(baseExecutionPlan, config, repositoryState, branchPolicyOverride);
+  const executionPlan = {
+    ...baseExecutionPlan,
+    branchName: branchResolution.branchName ?? "none"
+  };
+
+  if (branchResolution.decision === "blocked") {
+    return {
+      status: "blocked",
+      executionPlan,
+      branchResolution
+    };
+  }
+
+  const builtPrompt = buildAgentPrompt({
+    ticket: { ...ticket, classification },
+    config,
+    projectContext,
+    executionPlan
+  });
   const execution = await executionRepository.create({
-    ticketId: builtPrompt.executionPlan.ticket.id,
-    profileId: builtPrompt.executionPlan.profile.id,
-    providerId: builtPrompt.executionPlan.providerId,
-    modelId: builtPrompt.executionPlan.modelId,
+    ticketId: executionPlan.ticket.id,
+    profileId: executionPlan.profile.id,
+    providerId: executionPlan.providerId,
+    modelId: executionPlan.modelId,
     status: "planned",
-    branchName: builtPrompt.executionPlan.branchName,
+    branchName: executionPlan.branchName,
     promptSnapshot: builtPrompt.prompt,
-    classificationSnapshot: builtPrompt.executionPlan.classification,
+    classificationSnapshot: executionPlan.classification,
     logs: [],
     changedFiles: []
   });
 
   return {
+    status: "planned",
     execution,
     executionPlan: builtPrompt.executionPlan,
-    sources: builtPrompt.sources
+    sources: builtPrompt.sources,
+    branchResolution
   };
 }
 
