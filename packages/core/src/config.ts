@@ -61,8 +61,8 @@ export const openTopConfigSchema = z.object({
 
 export type OpenTopConfig = z.infer<typeof openTopConfigSchema>;
 
-export async function loadOpenTopConfig(path?: string): Promise<OpenTopConfig> {
-  const configPath = path ? resolve(path) : await findOpenTopConfig();
+export async function loadOpenTopConfig(path?: string, startDirectory = process.cwd()): Promise<OpenTopConfig> {
+  const configPath = path ? resolve(path) : await findOpenTopConfig(startDirectory);
   const raw = await readFile(configPath, "utf8");
   return openTopConfigSchema.parse(parse(raw));
 }

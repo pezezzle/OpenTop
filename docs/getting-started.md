@@ -19,23 +19,31 @@ pnpm install
 pnpm build
 ```
 
+## Target a Repository
+
+OpenTop works against the current working directory by default. Use `--repo` when you want to orchestrate a different repository, such as a sandbox:
+
+```bash
+pnpm cli:dev -- --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox status
+```
+
 ## Check Status
 
 ```bash
-pnpm --filter @opentop/cli dev -- status
+pnpm cli:dev -- status
 ```
 
 ## Create and List Tickets
 
 ```bash
-pnpm --filter @opentop/cli dev -- tickets create \
+pnpm cli:dev -- tickets create \
   --title "Fix login button layout" \
   --description "The login button is misaligned on mobile" \
   --labels bug
 ```
 
 ```bash
-pnpm --filter @opentop/cli dev -- tickets list
+pnpm cli:dev -- tickets list
 ```
 
 ## Classify a Ticket
@@ -43,13 +51,13 @@ pnpm --filter @opentop/cli dev -- tickets list
 Stored ticket by ID:
 
 ```bash
-pnpm --filter @opentop/cli dev -- classify 1
+pnpm cli:dev -- classify 1
 ```
 
 Manual command-line input:
 
 ```bash
-pnpm --filter @opentop/cli dev -- classify \
+pnpm cli:dev -- classify \
   --title "Fix login button layout" \
   --description "The login button is misaligned on mobile" \
   --labels bug
@@ -60,13 +68,13 @@ pnpm --filter @opentop/cli dev -- classify \
 Stored ticket by ID:
 
 ```bash
-pnpm --filter @opentop/cli dev -- prompt 1
+pnpm cli:dev -- prompt 1
 ```
 
 Manual command-line input:
 
 ```bash
-pnpm --filter @opentop/cli dev -- prompt \
+pnpm cli:dev -- prompt \
   --title "Fix login button layout" \
   --description "The login button is misaligned on mobile" \
   --labels bug
@@ -77,7 +85,7 @@ This reads `.opentop/opentop.yml`, `.opentop/project-context.md`, `.opentop/rule
 Use JSON output when you want the execution plan and source list as structured data:
 
 ```bash
-pnpm --filter @opentop/cli dev -- prompt \
+pnpm cli:dev -- prompt \
   --title "Fix login button layout" \
   --labels bug \
   --json
@@ -86,7 +94,7 @@ pnpm --filter @opentop/cli dev -- prompt \
 ## Create a Planned Execution
 
 ```bash
-pnpm --filter @opentop/cli dev -- run 1
+pnpm cli:dev -- run 1
 ```
 
 This stores a planned execution in `.opentop/state/opentop.db`, including the execution status, branch name, prompt snapshot, classification snapshot, and placeholders for logs and changed files.
@@ -94,14 +102,29 @@ This stores a planned execution in `.opentop/state/opentop.db`, including the ex
 Inspect stored executions:
 
 ```bash
-pnpm --filter @opentop/cli dev -- executions list
-pnpm --filter @opentop/cli dev -- executions show 1 --json
+pnpm cli:dev -- executions list
+pnpm cli:dev -- executions show 1 --json
+```
+
+## Install a Local `opentop` Command
+
+To expose a real local `opentop` command on your machine:
+
+```bash
+pnpm cli:link
+```
+
+Then you can call:
+
+```bash
+opentop --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox status
+opentop --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox tickets list
 ```
 
 ## Start the API
 
 ```bash
-pnpm --filter @opentop/api dev
+pnpm api
 ```
 
 The API listens on port `4317` by default.
@@ -109,7 +132,7 @@ The API listens on port `4317` by default.
 ## Start the Web UI
 
 ```bash
-pnpm --filter @opentop/web dev
+pnpm web
 ```
 
 ## Configuration

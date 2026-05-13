@@ -65,15 +65,33 @@ See [docs/opentop-project-context-and-memory.md](docs/opentop-project-context-an
 ```bash
 pnpm install
 pnpm build
-pnpm --filter @opentop/cli dev -- status
-pnpm --filter @opentop/cli dev -- tickets create --title "Fix login button" --labels bug
-pnpm --filter @opentop/cli dev -- tickets list
-pnpm --filter @opentop/cli dev -- classify 1
-pnpm --filter @opentop/cli dev -- prompt 1 --json
-pnpm --filter @opentop/cli dev -- run 1
-pnpm --filter @opentop/cli dev -- executions list
-pnpm --filter @opentop/cli dev -- prompt --title "Fix login button" --labels bug
+pnpm cli:dev -- status
+pnpm cli:dev -- tickets create --title "Fix login button" --labels bug
+pnpm cli:dev -- tickets list
+pnpm cli:dev -- classify 1
+pnpm cli:dev -- prompt 1 --json
+pnpm cli:dev -- run 1
+pnpm cli:dev -- executions list
+pnpm cli:dev -- prompt --title "Fix login button" --labels bug
 ```
+
+## Local CLI
+
+You can target the current repository or a separate sandbox repository with `--repo`:
+
+```bash
+pnpm cli:dev -- --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox status
+pnpm cli:dev -- --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox tickets list
+```
+
+To expose a real local `opentop` command on your machine:
+
+```bash
+pnpm cli:link
+opentop --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox status
+```
+
+Use `pnpm web` to start the board on port `3000` and `pnpm api` to start the local API.
 
 ## Claim
 

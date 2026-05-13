@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { mkdir, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { Command } from "commander";
 import {
   buildAgentPrompt,
@@ -24,12 +25,14 @@ const program = new Command();
 program
   .name("opentop")
   .description("Open Ticket Orchestrator Platform CLI")
-  .version("0.1.0");
+  .version("0.1.0")
+  .option("-r, --repo <path>", "Target repository path", process.cwd());
 
 program
   .command("init")
   .description("Create a starter .opentop/opentop.yml config")
   .action(async () => {
+    const targetDirectory = getTargetRepositoryPath();
     const starterConfig = `project:
   name: OpenTop
   defaultBranch: main
@@ -66,23 +69,28 @@ commands:
   test: pnpm test
 `;
 
-    await mkdir(".opentop", { recursive: true });
-    await writeFile(".opentop/opentop.yml", starterConfig, { flag: "wx" });
-    console.log("Created .opentop/opentop.yml");
+    const openTopDirectory = join(targetDirectory, ".opentop");
+    const configPath = join(openTopDirectory, "opentop.yml");
+
+    await mkdir(openTopDirectory, { recursive: true });
+    await writeFile(configPath, starterConfig, { flag: "wx" });
+    console.log(`Created ${configPath}`);
   });
 
 program
   .command("status")
   .description("Show repository and OpenTop config status")
   .action(async () => {
+    const targetDirectory = getTargetRepositoryPath();
     const [config, repositoryStatus, ticketRepository, executionRepository] = await Promise.all([
-      loadOpenTopConfig(),
-      getRepositoryStatus(),
-      createSqliteTicketRepository(),
-      createSqliteExecutionRepository()
+      loadOpenTopConfig(undefined, targetDirectory),
+      getRepositoryStatus(targetDirectory),
+      createSqliteTicketRepository({ startDirectory: targetDirectory }),
+      createSqliteExecutionRepository({ startDirectory: targetDirectory })
     ]);
     const [tickets, executions] = await Promise.all([listTickets(ticketRepository), listExecutions(executionRepository)]);
 
+    console.log(`Repository: ${targetDirectory}`);
     console.log(`Project: ${config.project.name}`);
     console.log(`Default branch: ${config.project.defaultBranch}`);
     console.log(`Current branch: ${repositoryStatus.currentBranch}`);
@@ -111,7 +119,7 @@ ticketsCommand
       externalId?: string;
       json?: boolean;
     }) => {
-      const repository = await createSqliteTicketRepository();
+      const repository = await createSqliteTicketRepository({ startDirectory: getTargetRepositoryPath() });
       const ticket = await createTicket(repository, {
         source: options.source,
         externalId: options.externalId,
@@ -134,7 +142,7 @@ ticketsCommand
   .description("List locally stored OpenTop tickets")
   .option("--json", "Print stored tickets as JSON")
   .action(async (options: { json?: boolean }) => {
-    const repository = await createSqliteTicketRepository();
+    const repository = await createSqliteTicketRepository({ startDirectory: getTargetRepositoryPath() });
     const tickets = await listTickets(repository);
 
     if (options.json) {
@@ -159,7 +167,7 @@ executionsCommand
   .description("List locally stored OpenTop executions")
   .option("--json", "Print stored executions as JSON")
   .action(async (options: { json?: boolean }) => {
-    const repository = await createSqliteExecutionRepository();
+    const repository = await createSqliteExecutionRepository({ startDirectory: getTargetRepositoryPath() });
     const executions = await listExecutions(repository);
 
     if (options.json) {
@@ -183,7 +191,7 @@ executionsCommand
   .argument("<executionId>", "Execution ID")
   .option("--json", "Print the execution as JSON")
   .action(async (executionId: string, options: { json?: boolean }) => {
-    const repository = await createSqliteExecutionRepository();
+    const repository = await createSqliteExecutionRepository({ startDirectory: getTargetRepositoryPath() });
     const execution = await getExecution(repository, executionId);
 
     if (options.json) {
@@ -207,10 +215,11 @@ program
   .option("--description <description>", "Ticket description", "")
   .option("--labels <labels>", "Comma-separated ticket labels", "")
   .action(async (ticketId: string | undefined, options: { title: string; description: string; labels: string }) => {
-    const config = await loadOpenTopConfig();
+    const targetDirectory = getTargetRepositoryPath();
+    const config = await loadOpenTopConfig(undefined, targetDirectory);
 
     if (ticketId) {
-      const repository = await createSqliteTicketRepository();
+      const repository = await createSqliteTicketRepository({ startDirectory: targetDirectory });
       const result = await classifyStoredTicket(repository, config, ticketId);
       console.log(JSON.stringify(result, null, 2));
       return;
@@ -234,10 +243,19 @@ program
       ticketId: string | undefined,
       options: { title: string; description: string; labels: string; json?: boolean }
     ) => {
-    const [config, projectContext] = await Promise.all([loadOpenTopConfig(), loadOpenTopProjectContext()]);
+      const targetDirectory = getTargetRepositoryPath();
+      const [config, projectContext] = await Promise.all([
+        loadOpenTopConfig(undefined, targetDirectory),
+        loadOpenTopProjectContext(targetDirectory)
+      ]);
 
       const builtPrompt = ticketId
-        ? await buildPromptForStoredTicket(await createSqliteTicketRepository(), config, projectContext, ticketId)
+        ? await buildPromptForStoredTicket(
+            await createSqliteTicketRepository({ startDirectory: targetDirectory }),
+            config,
+            projectContext,
+            ticketId
+          )
         : buildAgentPrompt({
             ticket: createManualTicket(options.title, options.description, options.labels),
             config,
@@ -258,11 +276,12 @@ program
   .description("Create a planned execution for a stored ticket")
   .argument("<ticketId>", "Ticket ID")
   .action(async (ticketId: string) => {
+    const targetDirectory = getTargetRepositoryPath();
     const [config, projectContext, ticketRepository, executionRepository] = await Promise.all([
-      loadOpenTopConfig(),
-      loadOpenTopProjectContext(),
-      createSqliteTicketRepository(),
-      createSqliteExecutionRepository()
+      loadOpenTopConfig(undefined, targetDirectory),
+      loadOpenTopProjectContext(targetDirectory),
+      createSqliteTicketRepository({ startDirectory: targetDirectory }),
+      createSqliteExecutionRepository({ startDirectory: targetDirectory })
     ]);
     const result = await createPlannedExecutionForStoredTicket(
       ticketRepository,
@@ -330,4 +349,9 @@ function toExecutionSummary(execution: {
     createdAt: execution.createdAt,
     updatedAt: execution.updatedAt
   };
+}
+
+function getTargetRepositoryPath(): string {
+  const options = program.opts<{ repo?: string }>();
+  return resolve(options.repo ?? process.cwd());
 }
