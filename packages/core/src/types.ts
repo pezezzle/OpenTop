@@ -55,8 +55,26 @@ export interface Execution {
   modelId: string;
   status: ExecutionStatus;
   branchName: string;
+  promptSnapshot: string;
+  classificationSnapshot: Classification;
   logs: string[];
   changedFiles: string[];
+  pullRequestUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ExecutionCreateInput {
+  ticketId: string;
+  profileId: string;
+  providerId: string;
+  modelId: string;
+  status: ExecutionStatus;
+  branchName: string;
+  promptSnapshot: string;
+  classificationSnapshot: Classification;
+  logs?: string[];
+  changedFiles?: string[];
   pullRequestUrl?: string;
 }
 

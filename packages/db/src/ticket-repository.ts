@@ -1,15 +1,9 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
 import { desc, eq } from "drizzle-orm";
-import { drizzle, type SQLJsDatabase } from "drizzle-orm/sql-js";
 import { findOpenTopDirectory, type Ticket, type TicketCreateInput, type TicketRepository } from "@opentop/core";
-import initSqlJs, { type Database } from "sql.js";
+import type { Database } from "sql.js";
+import type { SQLJsDatabase } from "drizzle-orm/sql-js";
+import { createOpenTopSqliteContext, persistDatabase, type SqliteRepositoryOptions } from "./database.js";
 import { ticketsTable } from "./schema.js";
-
-export interface SqliteTicketRepositoryOptions {
-  filePath?: string;
-  startDirectory?: string;
-}
 
 export class SqliteTicketRepository implements TicketRepository {
   constructor(
@@ -57,61 +51,10 @@ export class SqliteTicketRepository implements TicketRepository {
 }
 
 export async function createSqliteTicketRepository(
-  options: SqliteTicketRepositoryOptions = {}
+  options: SqliteRepositoryOptions = {}
 ): Promise<SqliteTicketRepository> {
-  const filePath = await resolveDatabasePath(options);
-  await mkdir(dirname(filePath), { recursive: true });
-
-  const SQL = await initSqlJs();
-  const databaseBuffer = await readDatabaseFile(filePath);
-  const sqlite = databaseBuffer ? new SQL.Database(databaseBuffer) : new SQL.Database();
-
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS tickets (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      source TEXT NOT NULL,
-      external_id TEXT,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL,
-      labels TEXT NOT NULL,
-      status TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    )
-  `);
-
-  await persistDatabase(sqlite, filePath);
-
-  const database = drizzle(sqlite);
+  const { database, sqlite, filePath } = await createOpenTopSqliteContext(options);
   return new SqliteTicketRepository(database, sqlite, filePath);
-}
-
-async function resolveDatabasePath(options: SqliteTicketRepositoryOptions): Promise<string> {
-  if (options.filePath) {
-    return resolve(options.filePath);
-  }
-
-  const openTopDirectory = await findOpenTopDirectory(options.startDirectory);
-  return join(openTopDirectory, "state", "opentop.db");
-}
-
-async function readDatabaseFile(filePath: string): Promise<Uint8Array | undefined> {
-  try {
-    await access(filePath);
-    const file = await readFile(filePath);
-    return new Uint8Array(file);
-  } catch (error) {
-    if (isMissingFileError(error)) {
-      return undefined;
-    }
-
-    throw error;
-  }
-}
-
-async function persistDatabase(sqlite: Database, filePath: string): Promise<void> {
-  const bytes = sqlite.export();
-  await writeFile(filePath, Buffer.from(bytes));
 }
 
 function mapTicketRow(row: typeof ticketsTable.$inferSelect): Ticket {
@@ -133,13 +76,4 @@ function parseLabels(raw: string): string[] {
   } catch {
     return [];
   }
-}
-
-function isMissingFileError(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code: unknown }).code === "ENOENT"
-  );
 }

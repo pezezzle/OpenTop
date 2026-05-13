@@ -69,8 +69,9 @@ pnpm --filter @opentop/cli dev -- status
 pnpm --filter @opentop/cli dev -- tickets create --title "Fix login button" --labels bug
 pnpm --filter @opentop/cli dev -- tickets list
 pnpm --filter @opentop/cli dev -- classify 1
-pnpm --filter @opentop/cli dev -- classify --title "Fix login button" --labels bug
-pnpm --filter @opentop/cli dev -- prompt 1
+pnpm --filter @opentop/cli dev -- prompt 1 --json
+pnpm --filter @opentop/cli dev -- run 1
+pnpm --filter @opentop/cli dev -- executions list
 pnpm --filter @opentop/cli dev -- prompt --title "Fix login button" --labels bug
 ```
 

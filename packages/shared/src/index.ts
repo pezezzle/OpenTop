@@ -15,4 +15,4 @@ export type ExecutionMode =
   | "fix_build"
   | "draft_pr";
 
-export type ExecutionStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+export type ExecutionStatus = "planned" | "queued" | "running" | "succeeded" | "failed" | "cancelled";

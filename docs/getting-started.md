@@ -83,6 +83,21 @@ pnpm --filter @opentop/cli dev -- prompt \
   --json
 ```
 
+## Create a Planned Execution
+
+```bash
+pnpm --filter @opentop/cli dev -- run 1
+```
+
+This stores a planned execution in `.opentop/state/opentop.db`, including the execution status, branch name, prompt snapshot, classification snapshot, and placeholders for logs and changed files.
+
+Inspect stored executions:
+
+```bash
+pnpm --filter @opentop/cli dev -- executions list
+pnpm --filter @opentop/cli dev -- executions show 1 --json
+```
+
 ## Start the API
 
 ```bash
