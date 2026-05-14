@@ -67,6 +67,7 @@ Start with:
 - [Web UI](docs/web.md)
 - [Data Model](docs/data-model.md)
 - [Execution Flow](docs/execution-flow.md)
+- [Context Profiles](docs/context-profiles.md)
 
 ## Project Context
 

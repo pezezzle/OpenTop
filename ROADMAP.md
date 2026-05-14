@@ -5,6 +5,7 @@
 - Monorepo foundation with CLI, API, Web, and core packages.
 - Public target architecture document.
 - Documentation structure for architecture, current state, CLI, API, Web, data model, execution flow, and decisions.
+- Context Profiles architecture for user profiles, learned profiles, and prompt budget rules.
 - Manual ticket classification.
 - Rule-based classifier and model routing.
 - Provider adapter interface.
@@ -25,11 +26,15 @@
 - Changed file collection.
 - Draft PR creation through GitHub.
 - GitHub issue import.
+- Project analysis proposal command.
+- Context profile settings in Web.
 
 ## 0.3
 
 - Approval workflow in the Web UI.
 - AI-assisted classifier explanations.
+- Learned profile generation from existing repositories.
+- Applying learned profiles to new projects.
 - More provider adapters.
 - Linear import.
 - Stronger command allowlist enforcement.

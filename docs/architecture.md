@@ -264,6 +264,31 @@ The purpose is to help the `PromptBuilder` create controlled prompts from:
 
 OpenTop should not duplicate a project's full `docs/` folder. It should reference important documentation and carry the execution context agents need.
 
+## Context Profiles
+
+Context Profiles extend project context with optional learned and user-level style knowledge.
+
+They support this goal:
+
+```text
+Ticket + Project Context + selected profiles -> project-specific controlled prompt
+```
+
+Context priority:
+
+```text
+Ticket Context
+-> Project Context
+-> Project Memory
+-> Selected Learned Profile
+-> Selected User Profile
+-> OpenTop Defaults
+```
+
+Project rules must beat personal style by default. Profile context should fill gaps, especially in new projects or poorly documented projects.
+
+See [context-profiles.md](context-profiles.md) for the detailed structure, settings model, and prompt budget rules.
+
 ## Execution Pipeline
 
 The final execution pipeline should look like this:

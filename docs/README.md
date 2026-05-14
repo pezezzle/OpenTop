@@ -19,6 +19,7 @@ This directory contains the working documentation for OpenTop.
 
 - [Data Model](data-model.md): tickets, classifications, executions, config, and storage.
 - [Execution Flow](execution-flow.md): how work moves through OpenTop.
+- [Context Profiles](context-profiles.md): user profiles, learned profiles, context priority, and prompt budget.
 - [Project Context and Memory](opentop-project-context-and-memory.md): `.opentop/` context structure.
 - [Agent Profiles](agent-profiles.md): execution profiles and modes.
 
@@ -30,4 +31,3 @@ Architecture decisions are documented as short ADRs in [decisions/](decisions/).
 - [0002: Core owns business logic](decisions/0002-core-owns-business-logic.md)
 - [0003: Branch policy is config driven](decisions/0003-branch-policy-is-config-driven.md)
 - [0004: Project context lives in `.opentop/`](decisions/0004-project-context-lives-in-opentop.md)
-
