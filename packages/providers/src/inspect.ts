@@ -12,12 +12,24 @@ export async function inspectProviderRuntime(
   definition: ProviderDefinition,
   modelTiers: ProviderModelReference[]
 ): Promise<ProviderInspectionResult> {
+  if (definition.connection.method === "oauth") {
+    return inspectOauthProvider(providerId, definition, modelTiers);
+  }
+
   if (definition.type === "codex-cli") {
     return inspectCodexCliProvider(providerId, definition, modelTiers);
   }
 
   if (definition.type === "custom-shell") {
     return inspectCustomShellProvider(providerId, definition, modelTiers);
+  }
+
+  if (definition.connection.method === "api_key") {
+    return inspectApiKeyProvider(providerId, definition, modelTiers);
+  }
+
+  if (definition.connection.method === "local_model") {
+    return inspectLocalModelProvider(providerId, definition, modelTiers);
   }
 
   return {
@@ -75,6 +87,7 @@ async function inspectCodexCliProvider(
     metadata: {
       command,
       resolvedCommand: executable,
+      connectionMethod: definition.connection.method,
       providerType: definition.type
     }
   };
@@ -114,6 +127,130 @@ async function inspectCustomShellProvider(
     issues,
     metadata: {
       command: definition.command ?? "(missing)",
+      connectionMethod: definition.connection.method,
+      providerType: definition.type
+    }
+  };
+}
+
+async function inspectApiKeyProvider(
+  providerId: string,
+  definition: ProviderDefinition,
+  modelTiers: ProviderModelReference[]
+): Promise<ProviderInspectionResult> {
+  const issues: ProviderIssue[] = [];
+  const apiKeyEnv = definition.apiKeyEnv ?? definition.connection.apiKeyEnv;
+  const apiKeyAvailable = typeof apiKeyEnv === "string" && apiKeyEnv.length > 0 && Boolean(process.env[apiKeyEnv]);
+
+  if (!apiKeyEnv) {
+    issues.push({
+      severity: "error",
+      code: "api_key_env_missing",
+      message: `Provider "${providerId}" uses API key authentication, but no apiKeyEnv is configured.`
+    });
+  } else if (!apiKeyAvailable) {
+    issues.push({
+      severity: "error",
+      code: "api_key_not_available",
+      message: `Provider "${providerId}" expects environment variable "${apiKeyEnv}", but it is not available in the current process.`
+    });
+  }
+
+  if (modelTiers.length === 0) {
+    issues.push({
+      severity: "warning",
+      code: "no_model_tiers",
+      message: `Provider "${providerId}" is configured, but no model tiers currently route to it.`
+    });
+  }
+
+  if (definition.type === "openai-api") {
+    issues.push({
+      severity: "info",
+      code: "runtime_adapter_pending",
+      message: `OpenTop can store and validate this OpenAI API connection, but the runtime adapter is not implemented yet.`
+    });
+  }
+
+  return {
+    available: apiKeyAvailable,
+    issues,
+    metadata: {
+      apiKeyEnv: apiKeyEnv ?? "(missing)",
+      connectionMethod: definition.connection.method,
+      providerType: definition.type,
+      ...(definition.baseUrl ? { baseUrl: definition.baseUrl } : {})
+    }
+  };
+}
+
+async function inspectOauthProvider(
+  providerId: string,
+  definition: ProviderDefinition,
+  modelTiers: ProviderModelReference[]
+): Promise<ProviderInspectionResult> {
+  const issues: ProviderIssue[] = [
+    {
+      severity: "warning",
+      code: "oauth_flow_pending",
+      message: `Provider "${providerId}" is configured for OAuth, but the interactive OAuth connect flow is not implemented yet. Store only non-secret metadata in project config.`
+    }
+  ];
+
+  if (modelTiers.length === 0) {
+    issues.push({
+      severity: "warning",
+      code: "no_model_tiers",
+      message: `Provider "${providerId}" is configured, but no model tiers currently route to it.`
+    });
+  }
+
+  return {
+    available: false,
+    issues,
+    metadata: {
+      oauthProvider: definition.oauthProvider ?? definition.connection.oauthProvider ?? "(not set)",
+      connectionMethod: definition.connection.method,
+      providerType: definition.type
+    }
+  };
+}
+
+async function inspectLocalModelProvider(
+  providerId: string,
+  definition: ProviderDefinition,
+  modelTiers: ProviderModelReference[]
+): Promise<ProviderInspectionResult> {
+  const issues: ProviderIssue[] = [];
+
+  if (!definition.baseUrl && !definition.connection.baseUrl) {
+    issues.push({
+      severity: "warning",
+      code: "base_url_missing",
+      message: `Provider "${providerId}" uses a local model connection, but no baseUrl is configured yet.`
+    });
+  }
+
+  if (modelTiers.length === 0) {
+    issues.push({
+      severity: "warning",
+      code: "no_model_tiers",
+      message: `Provider "${providerId}" is configured, but no model tiers currently route to it.`
+    });
+  }
+
+  issues.push({
+    severity: "info",
+    code: "runtime_adapter_pending",
+    message: `OpenTop can store this local-model connection, but the runtime adapter is not implemented yet.`
+  });
+
+  return {
+    available: issues.every((issue) => issue.severity !== "error"),
+    issues,
+    metadata: {
+      baseUrl: definition.baseUrl ?? definition.connection.baseUrl ?? "(not set)",
+      connectionMethod: definition.connection.method,
       providerType: definition.type
     }
   };

@@ -2,7 +2,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { Command } from "commander";
@@ -10,6 +10,7 @@ import {
   buildAgentPrompt,
   buildPromptForStoredTicket,
   classifyStoredTicket,
+  createStarterConfigObject,
   getProvider,
   getBranchPolicySettings,
   getConfigValue,
@@ -21,11 +22,14 @@ import {
   inspectConfiguredProviders,
   loadOpenTopConfig,
   loadOpenTopProjectContext,
+  saveProviderSetup,
   startExecutionForStoredTicket,
   setConfigValue,
+  stringifyStarterConfig,
   planExecutionForStoredTicket,
   type OpenTopConfigScope,
   type ExecutionBranchPolicy,
+  type ProviderConnectionMethod,
   type Ticket
 } from "@opentop/core";
 import { createSqliteExecutionRepository, createSqliteTicketRepository } from "@opentop/db";
@@ -46,6 +50,7 @@ const shellHelpItems = [
   ["executions show <id> [--json]", "Show one stored execution"],
   ["providers list [--json]", "Inspect configured providers"],
   ["providers doctor [--json]", "Show provider health and compatibility warnings"],
+  ["providers setup", "Interactive provider and model-tier setup"],
   ["classify <ticketId>", "Classify a stored ticket"],
   ["prompt <ticketId> [--json]", "Build a controlled prompt"],
   ["run <ticketId> [--branch-policy new|reuse-current|manual|none]", "Run an execution end-to-end"],
@@ -97,54 +102,36 @@ program
 
 program
   .command("init")
-  .description("Create a starter .opentop/opentop.yml config")
+  .description("Initialize OpenTop config and optionally guide provider setup")
   .action(async () => {
     const targetDirectory = getTargetRepositoryPath();
-    const starterConfig = `project:
-  name: OpenTop
-  defaultBranch: main
-
-providers:
-  codex:
-    type: codex-cli
-    command: codex
-
-models:
-  cheap:
-    provider: codex
-    model: gpt-5.3
-
-agentProfiles:
-  bugfix:
-    description: Small isolated bug fixes
-    modelTier: cheap
-    mode: implement_and_test
-    requiresApproval: false
-    allowedCommands:
-      - pnpm test
-
-routing:
-  rules:
-    - when:
-        labels:
-          - bug
-      profile: bugfix
-    - default:
-        profile: bugfix
-
-commands:
-  test: pnpm test
-
-execution:
-  defaultBranchPolicy: reuse-current
-`;
-
     const openTopDirectory = join(targetDirectory, ".opentop");
     const configPath = join(openTopDirectory, "opentop.yml");
+    const rl = createInterface({ input, output });
 
-    await mkdir(openTopDirectory, { recursive: true });
-    await writeFile(configPath, starterConfig, { flag: "wx" });
-    console.log(`Created ${configPath}`);
+    try {
+      const projectName =
+        (await safeQuestion(
+          rl,
+          colorize(`Project name [${deriveProjectDisplayName(targetDirectory)}]: `, "cyan")
+        )) || deriveProjectDisplayName(targetDirectory);
+      const createProvider = await yesNoQuestion(
+        rl,
+        "Configure a provider now? [Y/n]: ",
+        true
+      );
+      const starterConfig = createStarterConfigObject(projectName);
+
+      await mkdir(openTopDirectory, { recursive: true });
+      await writeFile(configPath, stringifyStarterConfig(starterConfig), { flag: "wx" });
+      printSuccess(`Created ${configPath}`);
+
+      if (createProvider) {
+        await runProviderSetupWizard(targetDirectory, rl);
+      }
+    } finally {
+      rl.close();
+    }
   });
 
 program
@@ -327,6 +314,19 @@ providersCommand
   .option("--json", "Print provider status as JSON")
   .action(async (options: { json?: boolean }) => {
     await printProviderStatuses(getTargetRepositoryPath(), options.json ?? false);
+  });
+
+providersCommand
+  .command("setup")
+  .description("Interactively configure provider type, connection method, and model tiers")
+  .action(async () => {
+    const rl = createInterface({ input, output });
+
+    try {
+      await runProviderSetupWizard(getTargetRepositoryPath(), rl);
+    } finally {
+      rl.close();
+    }
   });
 
 program
@@ -516,6 +516,108 @@ function parseExecutionBranchPolicy(value: string): ExecutionBranchPolicy {
   throw new Error(`Unsupported branch policy "${value}". Use one of: new, reuse-current, manual, none.`);
 }
 
+function connectionMethodsForProviderType(providerType: string): ProviderConnectionMethod[] {
+  switch (providerType) {
+    case "codex-cli":
+      return ["local_cli", "oauth", "api_key"];
+    case "openai-api":
+    case "openrouter-api":
+      return ["api_key", "oauth"];
+    case "custom-shell":
+      return ["custom_command"];
+    case "ollama":
+      return ["local_model"];
+    default:
+      return ["local_cli", "api_key", "oauth", "custom_command", "local_model"];
+  }
+}
+
+function defaultConnectionMethodForProviderType(providerType: string): ProviderConnectionMethod {
+  switch (providerType) {
+    case "openai-api":
+    case "openrouter-api":
+      return "api_key";
+    case "custom-shell":
+      return "custom_command";
+    case "ollama":
+      return "local_model";
+    default:
+      return "local_cli";
+  }
+}
+
+function defaultCommandForProvider(providerType: string, connectionMethod: ProviderConnectionMethod): string | undefined {
+  if (providerType === "codex-cli" && connectionMethod === "local_cli") {
+    return "codex";
+  }
+
+  if (providerType === "custom-shell" && connectionMethod === "custom_command") {
+    return "echo";
+  }
+
+  return undefined;
+}
+
+function defaultApiKeyEnvForProvider(providerType: string, connectionMethod: ProviderConnectionMethod): string | undefined {
+  if (connectionMethod !== "api_key") {
+    return undefined;
+  }
+
+  if (providerType === "openrouter-api") {
+    return "OPENROUTER_API_KEY";
+  }
+
+  return "OPENAI_API_KEY";
+}
+
+function defaultOauthProviderForType(providerType: string, connectionMethod: ProviderConnectionMethod): string | undefined {
+  if (connectionMethod !== "oauth") {
+    return undefined;
+  }
+
+  if (providerType === "codex-cli") {
+    return "chatgpt";
+  }
+
+  if (providerType === "openai-api") {
+    return "openai";
+  }
+
+  return providerType.replace(/-api$/u, "");
+}
+
+function defaultBaseUrlForType(providerType: string, connectionMethod: ProviderConnectionMethod): string | undefined {
+  if (providerType === "ollama" || connectionMethod === "local_model") {
+    return "http://127.0.0.1:11434";
+  }
+
+  if (providerType === "openrouter-api") {
+    return "https://openrouter.ai/api/v1";
+  }
+
+  return undefined;
+}
+
+function defaultModelForTier(providerType: string, tier: "cheap" | "strong" | "local"): string | undefined {
+  if (providerType === "codex-cli") {
+    return "gpt-5-codex";
+  }
+
+  if (providerType === "openai-api") {
+    return tier === "cheap" ? "gpt-5.4-mini" : "gpt-5.5";
+  }
+
+  if (providerType === "openrouter-api") {
+    return tier === "cheap" ? "openai/gpt-5.4-mini" : "openai/gpt-5.5";
+  }
+
+  if (providerType === "ollama") {
+    return "llama3.1:latest";
+  }
+
+  return undefined;
+}
+
 function parseConfigScope(value: string): OpenTopConfigScope {
   if (value === "effective" || value === "project" || value === "user") {
     return value;
@@ -588,7 +690,8 @@ async function openSettingsMenu(
       printMenu([
         "[1] Set project branch policy",
         "[2] Set user branch policy",
-        "[3] Back"
+        "[3] Provider setup",
+        "[4] Back"
       ]);
       const choice = await safeQuestion(rl, colorize("Choose an action: ", "cyan"));
 
@@ -596,8 +699,13 @@ async function openSettingsMenu(
         return;
       }
 
-      if (choice === "3" || choice.toLowerCase() === "back") {
+      if (choice === "4" || choice.toLowerCase() === "back") {
         return;
+      }
+
+      if (choice === "3") {
+        await runProviderSetupWizard(targetDirectory, rl);
+        continue;
       }
 
       if (choice !== "1" && choice !== "2") {
@@ -631,6 +739,86 @@ async function openSettingsMenu(
   }
 }
 
+async function runProviderSetupWizard(
+  targetDirectory: string,
+  rl: ReturnType<typeof createInterface>
+): Promise<void> {
+  printSection("Provider Setup");
+  printMuted("Provider type and connection method are separate. Secrets stay out of project config.");
+
+  const providerId =
+    (await safeQuestion(rl, colorize("Provider ID [codex]: ", "cyan"))) || "codex";
+  const providerType = await chooseFromList(
+    rl,
+    "Provider type",
+    ["codex-cli", "openai-api", "openrouter-api", "custom-shell", "ollama"],
+    "codex-cli"
+  );
+  const connectionMethod = await chooseFromList(
+    rl,
+    "Connection method",
+    connectionMethodsForProviderType(providerType),
+    defaultConnectionMethodForProviderType(providerType)
+  );
+
+  const command = await promptOptionalField(
+    rl,
+    "Command",
+    defaultCommandForProvider(providerType, connectionMethod)
+  );
+  const apiKeyEnv = await promptOptionalField(
+    rl,
+    "API key env",
+    defaultApiKeyEnvForProvider(providerType, connectionMethod)
+  );
+  const oauthProvider = await promptOptionalField(
+    rl,
+    "OAuth provider",
+    defaultOauthProviderForType(providerType, connectionMethod)
+  );
+  const baseUrl = await promptOptionalField(
+    rl,
+    "Base URL",
+    defaultBaseUrlForType(providerType, connectionMethod)
+  );
+  const cheapModel = await promptOptionalField(
+    rl,
+    "Cheap model",
+    defaultModelForTier(providerType, "cheap")
+  );
+  const strongModel = await promptOptionalField(
+    rl,
+    "Strong model",
+    defaultModelForTier(providerType, "strong")
+  );
+  const localModel = await promptOptionalField(
+    rl,
+    "Local model",
+    defaultModelForTier(providerType, "local")
+  );
+
+  const targetPath = await saveProviderSetup(
+    {
+      providerId,
+      type: providerType,
+      connectionMethod,
+      command: command || undefined,
+      apiKeyEnv: apiKeyEnv || undefined,
+      oauthProvider: oauthProvider || undefined,
+      baseUrl: baseUrl || undefined,
+      modelMappings: {
+        ...(cheapModel ? { cheap: cheapModel } : {}),
+        ...(strongModel ? { strong: strongModel } : {}),
+        ...(localModel ? { local: localModel } : {})
+      }
+    },
+    targetDirectory
+  );
+  printSuccess(`Updated provider config in ${targetPath}`);
+  console.log("");
+  await printProviderStatuses(targetDirectory, false);
+}
+
 async function safeQuestion(
   rl: ReturnType<typeof createInterface>,
   prompt: string
@@ -644,6 +832,71 @@ async function safeQuestion(
 
     throw error;
   }
+}
+
+async function chooseFromList<T extends string>(
+  rl: ReturnType<typeof createInterface>,
+  label: string,
+  options: readonly T[],
+  fallback: T
+): Promise<T> {
+  console.log("");
+  printSection(label);
+  printBulletList(options.map((option, index) => `${index + 1}. ${option}`));
+
+  while (true) {
+    const raw =
+      (await safeQuestion(rl, colorize(`Choose ${label.toLowerCase()} [${fallback}]: `, "cyan"))) || fallback;
+    const byIndex = Number(raw);
+
+    if (Number.isInteger(byIndex) && byIndex >= 1 && byIndex <= options.length) {
+      return options[byIndex - 1];
+    }
+
+    if (options.includes(raw as T)) {
+      return raw as T;
+    }
+
+    printWarning(`Unknown ${label.toLowerCase()} "${raw}".`);
+  }
+}
+
+async function promptOptionalField(
+  rl: ReturnType<typeof createInterface>,
+  label: string,
+  fallback?: string
+): Promise<string> {
+  const raw = await safeQuestion(
+    rl,
+    colorize(`${label}${fallback ? ` [${fallback}]` : ""}: `, "cyan")
+  );
+
+  return raw && raw.length > 0 ? raw : fallback ?? "";
+}
+
+async function yesNoQuestion(
+  rl: ReturnType<typeof createInterface>,
+  prompt: string,
+  defaultValue: boolean
+): Promise<boolean> {
+  const raw = (await safeQuestion(rl, colorize(prompt, "cyan"))) ?? "";
+
+  if (raw.length === 0) {
+    return defaultValue;
+  }
+
+  const normalized = raw.toLowerCase();
+
+  if (normalized === "y" || normalized === "yes" || normalized === "j" || normalized === "ja") {
+    return true;
+  }
+
+  if (normalized === "n" || normalized === "no" || normalized === "nein") {
+    return false;
+  }
+
+  printWarning(`Unknown answer "${raw}", using ${defaultValue ? "yes" : "no"}.`);
+  return defaultValue;
 }
 
 function isReadlineClosedError(error: unknown): boolean {
@@ -706,10 +959,11 @@ async function printProviderStatuses(targetDirectory: string, asJson: boolean): 
 
   printSection("Providers");
   printTable(
-    ["ID", "Type", "Status", "Models", "Command"],
+    ["ID", "Type", "Connection", "Status", "Models", "Command"],
     providers.map((provider) => [
       provider.providerId,
       provider.type,
+      provider.connectionMethod,
       formatProviderStatus(provider.status),
       provider.modelTiers.length === 0
         ? colorize("(none)", "gray")
@@ -722,8 +976,12 @@ async function printProviderStatuses(targetDirectory: string, asJson: boolean): 
     console.log("");
     printSubsection(`${provider.providerId} details`);
     printKeyValueRows([
+      ["Connection", provider.connectionMethod],
       ["Available", provider.available ? colorize("yes", "green") : colorize("no", "red")],
-      ["Version", provider.version ?? "(unknown)"]
+      ["Version", provider.version ?? "(unknown)"],
+      ["API key env", provider.apiKeyEnv ?? "(none)"],
+      ["OAuth provider", provider.oauthProvider ?? "(none)"],
+      ["Base URL", provider.baseUrl ?? "(none)"]
     ]);
 
     if (provider.issues.length > 0) {
@@ -777,6 +1035,11 @@ async function printExecutions(targetDirectory: string): Promise<void> {
 function getTargetRepositoryPath(): string {
   const options = program.opts<{ repo?: string }>();
   return resolve(options.repo ?? process.cwd());
+}
+
+function deriveProjectDisplayName(targetDirectory: string): string {
+  const label = basename(resolve(targetDirectory));
+  return label.length > 0 ? label : "OpenTop Project";
 }
 
 function getWorkspaceRoot(): string {
@@ -1069,7 +1332,7 @@ async function executeShellCommand(
         await executeExecutionsShellCommand(rest, targetDirectory);
         return true;
       case "providers":
-        await executeProvidersShellCommand(rest, targetDirectory);
+        await executeProvidersShellCommand(rest, targetDirectory, rl);
         return true;
       case "classify":
         await executeClassifyShellCommand(rest, targetDirectory);
@@ -1207,7 +1470,11 @@ async function executeExecutionsShellCommand(tokens: string[], targetDirectory: 
   throw new Error("Unsupported executions command. Use `executions list` or `executions show <id>`.");
 }
 
-async function executeProvidersShellCommand(tokens: string[], targetDirectory: string): Promise<void> {
+async function executeProvidersShellCommand(
+  tokens: string[],
+  targetDirectory: string,
+  rl: ReturnType<typeof createInterface>
+): Promise<void> {
   const subcommand = tokens[0];
   const json = hasFlag(tokens.slice(1), "--json");
 
@@ -1216,7 +1483,12 @@ async function executeProvidersShellCommand(tokens: string[], targetDirectory: s
     return;
   }
 
-  throw new Error("Unsupported providers command. Use `providers list` or `providers doctor`.");
+  if (subcommand === "setup") {
+    await runProviderSetupWizard(targetDirectory, rl);
+    return;
+  }
+
+  throw new Error("Unsupported providers command. Use `providers list`, `providers doctor`, or `providers setup`.");
 }
 
 async function executeClassifyShellCommand(tokens: string[], targetDirectory: string): Promise<void> {

@@ -1,9 +1,11 @@
-import { updateBranchPolicyAction } from "../actions";
+import { updateBranchPolicyAction, updateProviderAction } from "../actions";
 import { getConfig, getProviders, getStatus } from "../../lib/opentop-api";
 
 export const dynamic = "force-dynamic";
 
 const policies = ["new", "reuse-current", "manual", "none"] as const;
+const providerTypes = ["codex-cli", "openai-api", "openrouter-api", "custom-shell", "ollama"] as const;
+const connectionMethods = ["local_cli", "api_key", "oauth", "custom_command", "local_model"] as const;
 
 export default async function SettingsPage() {
   const [config, status, providerResponse] = await Promise.all([getConfig(), getStatus(), getProviders()]);
@@ -88,8 +90,24 @@ export default async function SettingsPage() {
 
                 <dl className="stacked-meta">
                   <div>
+                    <dt>Connection</dt>
+                    <dd>{provider.connectionMethod}</dd>
+                  </div>
+                  <div>
                     <dt>Command</dt>
                     <dd>{provider.command ?? "(none)"}</dd>
+                  </div>
+                  <div>
+                    <dt>API key env</dt>
+                    <dd>{provider.apiKeyEnv ?? "(none)"}</dd>
+                  </div>
+                  <div>
+                    <dt>OAuth provider</dt>
+                    <dd>{provider.oauthProvider ?? "(none)"}</dd>
+                  </div>
+                  <div>
+                    <dt>Base URL</dt>
+                    <dd>{provider.baseUrl ?? "(none)"}</dd>
                   </div>
                   <div>
                     <dt>Available</dt>
@@ -121,6 +139,81 @@ export default async function SettingsPage() {
               </section>
             ))}
           </div>
+        </article>
+
+        <article className="panel panel-span-2">
+          <h2>Provider Setup</h2>
+          <p className="subline">
+            Configure provider type, connection method, and default model tiers without editing YAML by hand.
+          </p>
+
+          <form action={updateProviderAction} className="stack-form provider-form">
+            <div className="field-grid">
+              <label className="field">
+                <span>Provider ID</span>
+                <input defaultValue="codex" name="providerId" required type="text" />
+              </label>
+
+              <label className="field">
+                <span>Provider type</span>
+                <select defaultValue="codex-cli" name="type">
+                  {providerTypes.map((providerType) => (
+                    <option key={providerType} value={providerType}>
+                      {providerType}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Connection method</span>
+                <select defaultValue="local_cli" name="connectionMethod">
+                  {connectionMethods.map((method) => (
+                    <option key={method} value={method}>
+                      {method}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Command</span>
+                <input defaultValue="codex" name="command" placeholder="codex" type="text" />
+              </label>
+
+              <label className="field">
+                <span>API key env</span>
+                <input name="apiKeyEnv" placeholder="OPENAI_API_KEY" type="text" />
+              </label>
+
+              <label className="field">
+                <span>OAuth provider</span>
+                <input name="oauthProvider" placeholder="openai" type="text" />
+              </label>
+
+              <label className="field">
+                <span>Base URL</span>
+                <input name="baseUrl" placeholder="http://127.0.0.1:11434" type="text" />
+              </label>
+
+              <label className="field">
+                <span>Cheap model</span>
+                <input defaultValue="gpt-5-codex" name="cheapModel" placeholder="gpt-5-codex" type="text" />
+              </label>
+
+              <label className="field">
+                <span>Strong model</span>
+                <input defaultValue="gpt-5-codex" name="strongModel" placeholder="gpt-5-codex" type="text" />
+              </label>
+
+              <label className="field">
+                <span>Local model</span>
+                <input name="localModel" placeholder="llama3.1:latest" type="text" />
+              </label>
+            </div>
+
+            <button type="submit">Save provider setup</button>
+          </form>
         </article>
       </section>
     </main>

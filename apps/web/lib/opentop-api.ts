@@ -111,8 +111,11 @@ export interface ProviderIssue {
 export interface ProviderStatus {
   providerId: string;
   type: string;
+  connectionMethod: "local_cli" | "api_key" | "oauth" | "custom_command" | "local_model";
   command?: string;
   apiKeyEnv?: string;
+  oauthProvider?: string;
+  baseUrl?: string;
   modelTiers: Array<{
     tier: string;
     model: string;
@@ -184,6 +187,30 @@ export async function getConfig(): Promise<ConfigResponse> {
 
 export async function getProviders(): Promise<{ repository: string; providers: ProviderStatus[] }> {
   return apiFetch("/providers");
+}
+
+export async function updateProvider(input: {
+  providerId: string;
+  type: string;
+  connectionMethod: "local_cli" | "api_key" | "oauth" | "custom_command" | "local_model";
+  command?: string;
+  apiKeyEnv?: string;
+  oauthProvider?: string;
+  baseUrl?: string;
+  modelMappings?: Record<string, string>;
+}): Promise<{ ok: true; targetPath: string; provider: ProviderStatus | null }> {
+  return apiFetch(`/providers/${input.providerId}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      type: input.type,
+      connectionMethod: input.connectionMethod,
+      command: input.command,
+      apiKeyEnv: input.apiKeyEnv,
+      oauthProvider: input.oauthProvider,
+      baseUrl: input.baseUrl,
+      modelMappings: input.modelMappings ?? {}
+    })
+  });
 }
 
 export async function createTicket(input: {

@@ -4,8 +4,17 @@ import type { AiProviderAdapter } from "./types.js";
 
 export interface ProviderDefinition {
   type: string;
+  connection: {
+    method: string;
+    command?: string;
+    apiKeyEnv?: string;
+    oauthProvider?: string;
+    baseUrl?: string;
+  };
   command?: string;
   apiKeyEnv?: string;
+  oauthProvider?: string;
+  baseUrl?: string;
 }
 
 export function createProviderAdapter(providerId: string, definition: ProviderDefinition): AiProviderAdapter {

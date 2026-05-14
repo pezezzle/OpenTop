@@ -15,6 +15,7 @@ import {
   loadOpenTopConfig,
   loadOpenTopProjectContext,
   planExecutionForStoredTicket,
+  saveProviderSetup,
   setConfigValue,
   startExecutionForStoredTicket,
   type ExecutionBranchPolicy,
@@ -41,6 +42,16 @@ const updateConfigBodySchema = z.object({
   key: z.literal("execution.defaultBranchPolicy"),
   value: z.enum(["new", "reuse-current", "manual", "none"]),
   scope: z.enum(["project", "user"]).default("project")
+});
+
+const updateProviderBodySchema = z.object({
+  type: z.string().min(1),
+  connectionMethod: z.enum(["local_cli", "api_key", "oauth", "custom_command", "local_model"]),
+  command: z.string().trim().optional(),
+  apiKeyEnv: z.string().trim().optional(),
+  oauthProvider: z.string().trim().optional(),
+  baseUrl: z.string().trim().optional(),
+  modelMappings: z.record(z.string(), z.string()).default({})
 });
 
 const runTicketBodySchema = z.object({
@@ -112,6 +123,36 @@ export function buildServer() {
     return {
       repository: targetDirectory,
       providers
+    };
+  });
+
+  server.put("/providers/:providerId", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const providerId = z.object({ providerId: z.string().min(1) }).parse(request.params).providerId;
+    const body = updateProviderBodySchema.parse(request.body);
+    const targetPath = await saveProviderSetup(
+      {
+        providerId,
+        type: body.type,
+        connectionMethod: body.connectionMethod,
+        command: body.command || undefined,
+        apiKeyEnv: body.apiKeyEnv || undefined,
+        oauthProvider: body.oauthProvider || undefined,
+        baseUrl: body.baseUrl || undefined,
+        modelMappings: body.modelMappings
+      },
+      targetDirectory
+    );
+
+    const config = await loadOpenTopConfig(undefined, targetDirectory);
+    const providers = await inspectConfiguredProviders(config, {
+      inspect: inspectProviderRuntime
+    });
+
+    return {
+      ok: true,
+      targetPath,
+      provider: providers.find((provider) => provider.providerId === providerId) ?? null
     };
   });
 

@@ -151,9 +151,35 @@ OpenTop now inspects configured providers before you rely on them operationally:
 
 ```bash
 opentop providers doctor
+opentop providers setup
 ```
 
 The Web settings page also shows provider command availability, routed model tiers, and compatibility warnings. For example, a `codex-cli` setup that routes `cheap` to `gpt-5.3` will be flagged because many ChatGPT-backed Codex accounts reject non-Codex model IDs.
+
+Providers now separate:
+
+```text
+provider type
++ connection method
++ model tier mapping
+```
+
+Example project config:
+
+```yaml
+providers:
+  codex:
+    type: codex-cli
+    connection:
+      method: local_cli
+      command: codex
+
+  openai:
+    type: openai-api
+    connection:
+      method: api_key
+      apiKeyEnv: OPENAI_API_KEY
+```
 
 ## Branch Policy
 

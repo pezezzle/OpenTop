@@ -419,7 +419,8 @@ nav a.active,
 }
 
 .field input,
-.field textarea {
+.field textarea,
+.field select {
   background: rgba(255, 255, 255, 0.9);
   border: 1px solid rgba(183, 197, 186, 0.85);
   border-radius: var(--radius-md);
@@ -433,10 +434,21 @@ nav a.active,
 }
 
 .field input:focus,
-.field textarea:focus {
+.field textarea:focus,
+.field select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(19, 111, 99, 0.12);
   outline: none;
+}
+
+.field-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.provider-form {
+  align-items: start;
 }
 
 .detail-actions {
@@ -631,6 +643,10 @@ nav a.active,
   }
 
   .provider-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .field-grid {
     grid-template-columns: 1fr;
   }
 }

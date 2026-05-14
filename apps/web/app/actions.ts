@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { createTicket, runTicket, updateBranchPolicy } from "../lib/opentop-api";
+import { createTicket, runTicket, updateBranchPolicy, updateProvider } from "../lib/opentop-api";
 
 function parseLabels(value: FormDataEntryValue | null): string[] {
   if (typeof value !== "string") {
@@ -62,6 +62,42 @@ export async function updateBranchPolicyAction(formData: FormData) {
   }
 
   await updateBranchPolicy(scope, value);
+  revalidatePath("/");
+  revalidatePath("/settings");
+  redirect("/settings");
+}
+
+export async function updateProviderAction(formData: FormData) {
+  const providerId = String(formData.get("providerId") ?? "").trim();
+  const type = String(formData.get("type") ?? "").trim();
+  const connectionMethod = String(formData.get("connectionMethod") ?? "").trim();
+  const command = String(formData.get("command") ?? "").trim();
+  const apiKeyEnv = String(formData.get("apiKeyEnv") ?? "").trim();
+  const oauthProvider = String(formData.get("oauthProvider") ?? "").trim();
+  const baseUrl = String(formData.get("baseUrl") ?? "").trim();
+  const cheapModel = String(formData.get("cheapModel") ?? "").trim();
+  const strongModel = String(formData.get("strongModel") ?? "").trim();
+  const localModel = String(formData.get("localModel") ?? "").trim();
+
+  if (!providerId || !type || !connectionMethod) {
+    throw new Error("Missing provider setup fields.");
+  }
+
+  await updateProvider({
+    providerId,
+    type,
+    connectionMethod: connectionMethod as "local_cli" | "api_key" | "oauth" | "custom_command" | "local_model",
+    command: command || undefined,
+    apiKeyEnv: apiKeyEnv || undefined,
+    oauthProvider: oauthProvider || undefined,
+    baseUrl: baseUrl || undefined,
+    modelMappings: {
+      ...(cheapModel ? { cheap: cheapModel } : {}),
+      ...(strongModel ? { strong: strongModel } : {}),
+      ...(localModel ? { local: localModel } : {})
+    }
+  });
+
   revalidatePath("/");
   revalidatePath("/settings");
   redirect("/settings");

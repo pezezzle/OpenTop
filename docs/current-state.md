@@ -19,6 +19,7 @@ OpenTop currently has:
 - branch policy resolution
 - project and user config reads/writes for `execution.defaultBranchPolicy`
 - provider runtime inspection for configured providers and routed model tiers
+- provider setup persisted as `provider type + connection method + model tier mapping`
 - local CLI linking through `pnpm cli:link`
 - a local sandbox repository for testing OpenTop against an external target repo
 
@@ -84,6 +85,7 @@ Current commands include:
 - `opentop shell`
 - `opentop settings`
 - `opentop config get/set`
+- `opentop providers setup`
 - `opentop tickets create/list`
 - `opentop executions list/show`
 - `opentop classify`
@@ -114,6 +116,7 @@ The Web UI currently has:
 - `/tickets/[ticketId]`: ticket detail, classification, prompt preview, executions
 - `/executions/[executionId]`: execution detail, prompt snapshot, execution logs, and changed files
 - `/settings`: branch policy settings plus provider health and compatibility warnings
+- `/settings`: provider setup form for type, connection method, and model tiers
 
 ## Not Implemented Yet
 
@@ -124,6 +127,8 @@ OpenTop does not yet:
 - collect real changed files from provider output
 - create draft pull requests
 - stream execution logs
+- complete OAuth connect flow
+- runtime adapters for API-key and local-model providers such as OpenAI API or Ollama
 - support multi-user operation
 - support cloud workers
 - support Jira, Linear, Trello, or Azure DevOps imports

@@ -68,11 +68,26 @@ Response includes:
 Returns configured providers enriched with:
 
 - provider type
+- connection method
 - command
 - routed model tiers
 - runtime availability
 - CLI version when detectable
 - warnings or errors about provider compatibility
+
+### `PUT /providers/:providerId`
+
+Creates or updates provider setup in project config.
+
+Request fields:
+
+- `type`
+- `connectionMethod`
+- `command`
+- `apiKeyEnv`
+- `oauthProvider`
+- `baseUrl`
+- `modelMappings`
 
 ### `PUT /config`
 

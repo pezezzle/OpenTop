@@ -107,9 +107,11 @@ Shows and updates:
 - project branch policy
 - user branch policy
 - configured providers
+- connection method per provider
 - routed model tiers
 - runtime availability warnings
 - common model/provider compatibility warnings
+- provider setup form for command, API-key env, base URL, OAuth metadata, and model tiers
 
 Supported policies:
 

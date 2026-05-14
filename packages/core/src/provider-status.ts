@@ -1,4 +1,4 @@
-import type { OpenTopConfig, OpenTopProviderConfig } from "./config.js";
+import type { OpenTopConfig, OpenTopProviderConfig, ProviderConnectionMethod } from "./config.js";
 
 export type ProviderIssueSeverity = "error" | "warning" | "info";
 export type ProviderHealthStatus = "ready" | "warning" | "error";
@@ -24,8 +24,11 @@ export interface ProviderInspectionResult {
 export interface ProviderStatus {
   providerId: string;
   type: string;
+  connectionMethod: ProviderConnectionMethod;
   command?: string;
   apiKeyEnv?: string;
+  oauthProvider?: string;
+  baseUrl?: string;
   modelTiers: ProviderModelReference[];
   available: boolean;
   version?: string;
@@ -61,8 +64,11 @@ export async function inspectConfiguredProviders(
       return {
         providerId,
         type: definition.type,
+        connectionMethod: definition.connection.method,
         command: definition.command,
         apiKeyEnv: definition.apiKeyEnv,
+        oauthProvider: definition.oauthProvider,
+        baseUrl: definition.baseUrl,
         modelTiers,
         available: inspection.available,
         version: inspection.version,

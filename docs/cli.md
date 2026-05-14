@@ -49,6 +49,8 @@ Initialize `.opentop/opentop.yml`:
 opentop init
 ```
 
+`opentop init` now acts as an onboarding wizard and can immediately guide provider setup.
+
 Show repository and OpenTop status:
 
 ```powershell
@@ -87,6 +89,7 @@ Inspect configured providers:
 opentop providers list
 opentop providers doctor
 opentop providers doctor --json
+opentop providers setup
 ```
 
 ## Ticket Commands
@@ -181,3 +184,11 @@ opentop config set execution.defaultBranchPolicy reuse-current --scope user
 `opentop` without a subcommand stays command-oriented and prints help.
 
 `opentop providers doctor` is the main CLI diagnosis path for provider command availability, routed model tiers, and common compatibility warnings such as non-Codex model tiers on `codex-cli`.
+
+`opentop providers setup` is the main CLI write path for:
+
+- provider type
+- connection method
+- provider command or API-key env
+- base URL or OAuth metadata
+- default `cheap`, `strong`, and `local` model tiers

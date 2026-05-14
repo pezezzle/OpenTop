@@ -1,15 +1,37 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join, parse as parsePath, resolve } from "node:path";
+import { basename, dirname, join, parse as parsePath, resolve } from "node:path";
 import { parse, stringify } from "yaml";
 import { z } from "zod";
 import type { ExecutionBranchPolicy } from "@opentop/shared";
 
-const providerSchema = z.object({
-  type: z.string(),
+export const providerConnectionMethodSchema = z.enum([
+  "local_cli",
+  "api_key",
+  "oauth",
+  "custom_command",
+  "local_model"
+]);
+
+const providerConnectionSchema = z.object({
+  method: providerConnectionMethodSchema,
   command: z.string().optional(),
-  apiKeyEnv: z.string().optional()
+  apiKeyEnv: z.string().optional(),
+  oauthProvider: z.string().optional(),
+  baseUrl: z.string().optional()
 });
+
+const providerSchema = z.preprocess(
+  normalizeProviderInput,
+  z.object({
+    type: z.string(),
+    connection: providerConnectionSchema,
+    command: z.string().optional(),
+    apiKeyEnv: z.string().optional(),
+    oauthProvider: z.string().optional(),
+    baseUrl: z.string().optional()
+  })
+);
 
 const modelSchema = z.object({
   provider: z.string(),
@@ -70,6 +92,18 @@ export type OpenTopConfig = z.infer<typeof openTopConfigSchema>;
 export type OpenTopConfigScope = "effective" | "project" | "user";
 export type OpenTopProviderConfig = z.infer<typeof providerSchema>;
 export type OpenTopModelConfig = z.infer<typeof modelSchema>;
+export type ProviderConnectionMethod = z.infer<typeof providerConnectionMethodSchema>;
+
+export interface ProviderSetupInput {
+  providerId: string;
+  type: string;
+  connectionMethod: ProviderConnectionMethod;
+  command?: string;
+  apiKeyEnv?: string;
+  oauthProvider?: string;
+  baseUrl?: string;
+  modelMappings?: Partial<Record<string, string>>;
+}
 
 export async function loadOpenTopConfig(path?: string, startDirectory = process.cwd()): Promise<OpenTopConfig> {
   const configPath = path ? resolve(path) : await findOpenTopConfig(startDirectory);
@@ -218,6 +252,79 @@ export async function setConfigValue(
   return targetPath;
 }
 
+export async function saveProviderSetup(
+  input: ProviderSetupInput,
+  startDirectory = process.cwd()
+): Promise<string> {
+  const targetPath = await resolveProjectConfigPath(startDirectory);
+  const raw = ((await loadOptionalYamlFile(targetPath)) ?? createStarterConfigObject(deriveProjectName(startDirectory))) as Record<
+    string,
+    unknown
+  >;
+  const nextConfig = isObject(raw) ? { ...raw } : {};
+  const providers = isObject(nextConfig.providers) ? { ...nextConfig.providers } : {};
+  const models = isObject(nextConfig.models) ? { ...nextConfig.models } : {};
+
+  providers[input.providerId] = serializeProviderSetup(input);
+  nextConfig.providers = providers;
+  nextConfig.models = updateModelMappings(models, input.providerId, input.modelMappings ?? {});
+  nextConfig.project = isObject(nextConfig.project)
+    ? {
+        name:
+          typeof nextConfig.project.name === "string" && nextConfig.project.name.trim().length > 0
+            ? nextConfig.project.name
+            : deriveProjectName(startDirectory),
+        defaultBranch:
+          typeof nextConfig.project.defaultBranch === "string" && nextConfig.project.defaultBranch.trim().length > 0
+            ? nextConfig.project.defaultBranch
+            : "main"
+      }
+    : {
+        name: deriveProjectName(startDirectory),
+        defaultBranch: "main"
+      };
+  nextConfig.agentProfiles = isObject(nextConfig.agentProfiles)
+    ? nextConfig.agentProfiles
+    : defaultAgentProfiles();
+  nextConfig.routing = isObject(nextConfig.routing) ? nextConfig.routing : defaultRouting();
+  nextConfig.commands = isObject(nextConfig.commands) ? nextConfig.commands : defaultCommands();
+  nextConfig.execution = isObject(nextConfig.execution)
+    ? {
+        defaultBranchPolicy:
+          typeof nextConfig.execution.defaultBranchPolicy === "string"
+            ? nextConfig.execution.defaultBranchPolicy
+            : "reuse-current"
+      }
+    : {
+        defaultBranchPolicy: "reuse-current"
+      };
+
+  await mkdir(dirname(targetPath), { recursive: true });
+  await writeFile(targetPath, stringify(nextConfig));
+  return targetPath;
+}
+
+export function createStarterConfigObject(projectName = "OpenTop"): Record<string, unknown> {
+  return {
+    project: {
+      name: projectName,
+      defaultBranch: "main"
+    },
+    providers: {},
+    models: {},
+    agentProfiles: defaultAgentProfiles(),
+    routing: defaultRouting(),
+    commands: defaultCommands(),
+    execution: {
+      defaultBranchPolicy: "reuse-current"
+    }
+  };
+}
+
+export function stringifyStarterConfig(config: Record<string, unknown>): string {
+  return stringify(config);
+}
+
 export function getUserOpenTopConfigPath(): string {
   return join(homedir(), ".opentop", "config.yml");
 }
@@ -256,6 +363,194 @@ function mergeConfigObjects(userConfig: unknown, projectConfig: unknown): unknow
       ...(isObject(projectConfig.execution) ? projectConfig.execution : {})
     }
   };
+}
+
+async function resolveProjectConfigPath(startDirectory: string): Promise<string> {
+  try {
+    return await findOpenTopConfig(startDirectory);
+  } catch {
+    return join(resolve(startDirectory), ".opentop", "opentop.yml");
+  }
+}
+
+function serializeProviderSetup(input: ProviderSetupInput): Record<string, unknown> {
+  const connection: Record<string, unknown> = {
+    method: input.connectionMethod
+  };
+
+  if (input.command) {
+    connection.command = input.command;
+  }
+
+  if (input.apiKeyEnv) {
+    connection.apiKeyEnv = input.apiKeyEnv;
+  }
+
+  if (input.oauthProvider) {
+    connection.oauthProvider = input.oauthProvider;
+  }
+
+  if (input.baseUrl) {
+    connection.baseUrl = input.baseUrl;
+  }
+
+  return {
+    type: input.type,
+    connection
+  };
+}
+
+function updateModelMappings(
+  rawModels: Record<string, unknown>,
+  providerId: string,
+  mappings: Partial<Record<string, string>>
+): Record<string, unknown> {
+  const nextModels = { ...rawModels };
+
+  for (const [tier, model] of Object.entries(mappings)) {
+    if (!model || model.trim().length === 0) {
+      continue;
+    }
+
+    nextModels[tier] = {
+      provider: providerId,
+      model: model.trim()
+    };
+  }
+
+  return nextModels;
+}
+
+function defaultAgentProfiles(): Record<string, unknown> {
+  return {
+    bugfix: {
+      description: "Small isolated bug fixes",
+      modelTier: "cheap",
+      mode: "implement_and_test",
+      requiresApproval: false,
+      allowedCommands: ["pnpm test", "pnpm build"]
+    },
+    feature: {
+      description: "Standard feature implementation",
+      modelTier: "strong",
+      mode: "plan_then_implement",
+      requiresApproval: true,
+      allowedCommands: ["pnpm test", "pnpm build"]
+    },
+    architecture: {
+      description: "High-risk architecture decisions",
+      modelTier: "strong",
+      mode: "plan_only",
+      requiresApproval: true,
+      allowedCommands: ["pnpm test", "pnpm build"]
+    }
+  };
+}
+
+function defaultRouting(): Record<string, unknown> {
+  return {
+    rules: [
+      {
+        when: {
+          labels: ["bug"]
+        },
+        profile: "bugfix"
+      },
+      {
+        when: {
+          keywords: ["architecture", "auth", "security", "migration", "multi-tenant"]
+        },
+        profile: "architecture"
+      },
+      {
+        default: {
+          profile: "feature"
+        }
+      }
+    ]
+  };
+}
+
+function defaultCommands(): Record<string, unknown> {
+  return {
+    test: "pnpm test",
+    build: "pnpm build"
+  };
+}
+
+function deriveProjectName(startDirectory: string): string {
+  const name = basename(resolve(startDirectory));
+  return name.length > 0 ? name : "OpenTop Project";
+}
+
+function normalizeProviderInput(raw: unknown): unknown {
+  if (!isObject(raw)) {
+    return raw;
+  }
+
+  const type = typeof raw.type === "string" ? raw.type : "";
+  const existingConnection = isObject(raw.connection) ? raw.connection : undefined;
+  const connection =
+    existingConnection !== undefined
+      ? {
+          ...existingConnection
+        }
+      : {
+          method: inferConnectionMethod(type, raw),
+          ...(typeof raw.command === "string" ? { command: raw.command } : {}),
+          ...(typeof raw.apiKeyEnv === "string" ? { apiKeyEnv: raw.apiKeyEnv } : {}),
+          ...(typeof raw.oauthProvider === "string" ? { oauthProvider: raw.oauthProvider } : {}),
+          ...(typeof raw.baseUrl === "string" ? { baseUrl: raw.baseUrl } : {})
+        };
+
+  return {
+    ...raw,
+    connection,
+    command:
+      typeof raw.command === "string"
+        ? raw.command
+        : typeof connection.command === "string"
+          ? connection.command
+          : undefined,
+    apiKeyEnv:
+      typeof raw.apiKeyEnv === "string"
+        ? raw.apiKeyEnv
+        : typeof connection.apiKeyEnv === "string"
+          ? connection.apiKeyEnv
+          : undefined,
+    oauthProvider:
+      typeof raw.oauthProvider === "string"
+        ? raw.oauthProvider
+        : typeof connection.oauthProvider === "string"
+          ? connection.oauthProvider
+          : undefined,
+    baseUrl:
+      typeof raw.baseUrl === "string"
+        ? raw.baseUrl
+        : typeof connection.baseUrl === "string"
+          ? connection.baseUrl
+          : undefined
+  };
+}
+
+function inferConnectionMethod(type: string, raw: Record<string, unknown>): ProviderConnectionMethod {
+  if (typeof raw.apiKeyEnv === "string") {
+    return "api_key";
+  }
+
+  if (typeof raw.oauthProvider === "string") {
+    return "oauth";
+  }
+
+  if (type === "custom-shell") {
+    return "custom_command";
+  }
+
+  if (type === "ollama" || type === "lmstudio") {
+    return "local_model";
+  }
+
+  return "local_cli";
 }
 
 function readBranchPolicyValue(raw: unknown): ExecutionBranchPolicy | undefined {
