@@ -43,6 +43,7 @@ Shows:
 - current branch
 - effective branch policy
 - working tree status
+- provider readiness summary
 - ticket lanes
 - ticket cards
 - latest workflow stage
@@ -105,6 +106,10 @@ Shows and updates:
 - effective branch policy
 - project branch policy
 - user branch policy
+- configured providers
+- routed model tiers
+- runtime availability warnings
+- common model/provider compatibility warnings
 
 Supported policies:
 

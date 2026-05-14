@@ -81,6 +81,14 @@ Open settings menu:
 opentop settings
 ```
 
+Inspect configured providers:
+
+```powershell
+opentop providers list
+opentop providers doctor
+opentop providers doctor --json
+```
+
 ## Ticket Commands
 
 Create a local ticket:
@@ -171,3 +179,5 @@ opentop config set execution.defaultBranchPolicy reuse-current --scope user
 `opentop start` is the terminal app.
 
 `opentop` without a subcommand stays command-oriented and prints help.
+
+`opentop providers doctor` is the main CLI diagnosis path for provider command availability, routed model tiers, and common compatibility warnings such as non-Codex model tiers on `codex-cli`.

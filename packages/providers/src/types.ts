@@ -23,3 +23,23 @@ export interface AiProviderAdapter {
   id: string;
   run(request: AgentRunRequest): Promise<AgentRunResult>;
 }
+
+export interface ProviderModelReference {
+  tier: string;
+  model: string;
+}
+
+export type ProviderIssueSeverity = "error" | "warning" | "info";
+
+export interface ProviderIssue {
+  severity: ProviderIssueSeverity;
+  code: string;
+  message: string;
+}
+
+export interface ProviderInspectionResult {
+  available: boolean;
+  version?: string;
+  issues: ProviderIssue[];
+  metadata?: Record<string, string>;
+}

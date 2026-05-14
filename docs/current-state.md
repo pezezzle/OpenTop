@@ -18,6 +18,7 @@ OpenTop currently has:
 - stored executions with prompt snapshots, provider logs, and changed files
 - branch policy resolution
 - project and user config reads/writes for `execution.defaultBranchPolicy`
+- provider runtime inspection for configured providers and routed model tiers
 - local CLI linking through `pnpm cli:link`
 - a local sandbox repository for testing OpenTop against an external target repo
 
@@ -88,6 +89,7 @@ Current commands include:
 - `opentop classify`
 - `opentop prompt`
 - `opentop run`
+- `opentop providers list/doctor`
 
 ## API Status
 
@@ -95,6 +97,7 @@ The API exposes real local data for Web:
 
 - repository status
 - config
+- providers
 - tickets
 - ticket detail
 - prompt preview
@@ -110,7 +113,7 @@ The Web UI currently has:
 - `/`: execution board
 - `/tickets/[ticketId]`: ticket detail, classification, prompt preview, executions
 - `/executions/[executionId]`: execution detail, prompt snapshot, execution logs, and changed files
-- `/settings`: branch policy settings
+- `/settings`: branch policy settings plus provider health and compatibility warnings
 
 ## Not Implemented Yet
 

@@ -102,6 +102,28 @@ export interface ConfigResponse {
   };
 }
 
+export interface ProviderIssue {
+  severity: "error" | "warning" | "info";
+  code: string;
+  message: string;
+}
+
+export interface ProviderStatus {
+  providerId: string;
+  type: string;
+  command?: string;
+  apiKeyEnv?: string;
+  modelTiers: Array<{
+    tier: string;
+    model: string;
+  }>;
+  available: boolean;
+  version?: string;
+  status: "ready" | "warning" | "error";
+  issues: ProviderIssue[];
+  metadata: Record<string, string>;
+}
+
 export interface CreateTicketResponse {
   ticket: {
     id: string;
@@ -158,6 +180,10 @@ export async function getExecution(executionId: string): Promise<{ execution: Ex
 
 export async function getConfig(): Promise<ConfigResponse> {
   return apiFetch("/config");
+}
+
+export async function getProviders(): Promise<{ repository: string; providers: ProviderStatus[] }> {
+  return apiFetch("/providers");
 }
 
 export async function createTicket(input: {

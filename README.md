@@ -145,6 +145,16 @@ x              run execution
 
 OpenTop treats the Web app as the primary user interface. The CLI remains for setup, automation, and power-user workflows.
 
+## Provider Checks
+
+OpenTop now inspects configured providers before you rely on them operationally:
+
+```bash
+opentop providers doctor
+```
+
+The Web settings page also shows provider command availability, routed model tiers, and compatibility warnings. For example, a `codex-cli` setup that routes `cheap` to `gpt-5.3` will be flagged because many ChatGPT-backed Codex accounts reject non-Codex model IDs.
+
 ## Branch Policy
 
 OpenTop resolves branch behavior from config instead of requiring a flag on every run.

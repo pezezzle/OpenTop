@@ -1,18 +1,20 @@
 import Link from "next/link";
 import { createTicketAction } from "./actions";
-import { getConfig, getExecutions, getStatus, getTickets, type TicketSummary } from "../lib/opentop-api";
+import { getConfig, getExecutions, getProviders, getStatus, getTickets, type TicketSummary } from "../lib/opentop-api";
 
 export const dynamic = "force-dynamic";
 
 const lanes: Array<TicketSummary["workflowStage"]> = ["Inbox", "Classified", "Ready", "Running", "Review", "Done"];
 
 export default async function Home() {
-  const [status, ticketResponse, executionResponse, config] = await Promise.all([
+  const [status, ticketResponse, executionResponse, config, providerResponse] = await Promise.all([
     getStatus(),
     getTickets(),
     getExecutions(),
-    getConfig()
+    getConfig(),
+    getProviders()
   ]);
+  const providerWarnings = providerResponse.providers.filter((provider) => provider.status !== "ready");
 
   const ticketsByLane = Object.fromEntries(
     lanes.map((lane) => [lane, ticketResponse.tickets.filter((ticket) => ticket.workflowStage === lane)])
@@ -51,6 +53,14 @@ export default async function Home() {
               <dt>Tree</dt>
               <dd className={status.isClean ? "tone-good" : "tone-warn"}>{status.isClean ? "clean" : "dirty"}</dd>
             </div>
+            <div>
+              <dt>Providers</dt>
+              <dd className={providerWarnings.length > 0 ? "tone-warn" : "tone-good"}>
+                {providerWarnings.length > 0
+                  ? `${providerWarnings.length} warning${providerWarnings.length === 1 ? "" : "s"}`
+                  : "ready"}
+              </dd>
+            </div>
           </dl>
         </section>
       </aside>
@@ -70,6 +80,13 @@ export default async function Home() {
             <span>Stored executions: {status.storedExecutions}</span>
           </div>
         </header>
+
+        {providerWarnings.length > 0 ? (
+          <p className="notice notice-warning">
+            Provider setup needs attention. Review the warnings on the{" "}
+            <Link href="/settings">Settings</Link> page before starting new executions.
+          </p>
+        ) : null}
 
         <section className="overview-grid">
           <article className="panel">

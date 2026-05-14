@@ -63,6 +63,17 @@ Response includes:
 - project value
 - user value
 
+### `GET /providers`
+
+Returns configured providers enriched with:
+
+- provider type
+- command
+- routed model tiers
+- runtime availability
+- CLI version when detectable
+- warnings or errors about provider compatibility
+
 ### `PUT /config`
 
 Updates supported config values.
@@ -173,3 +184,4 @@ The API does not yet:
 - run checks
 - create draft PRs
 - import external tickets
+- update provider commands or model tiers through the API

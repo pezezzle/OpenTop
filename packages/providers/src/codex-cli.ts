@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import type { AgentRunRequest, AgentRunResult, AiProviderAdapter } from "./types.js";
+import { resolveExecutable } from "./command-resolution.js";
 
 export interface CodexCliProviderOptions {
   command?: string;
@@ -22,8 +23,9 @@ export class CodexCliProvider implements AiProviderAdapter {
     const logs: string[] = [];
     const outputDirectory = await mkdtemp(join(tmpdir(), "opentop-codex-"));
     const outputPath = join(outputDirectory, "last-message.txt");
+    const executable = await resolveExecutable(this.command);
     const child = spawn(
-      this.command,
+      executable,
       [
         "exec",
         "--cd",
@@ -41,7 +43,8 @@ export class CodexCliProvider implements AiProviderAdapter {
       {
         cwd: request.repositoryPath,
         env: process.env,
-        shell: true
+        shell: false,
+        windowsHide: true
       }
     );
 

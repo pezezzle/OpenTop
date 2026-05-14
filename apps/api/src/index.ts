@@ -9,6 +9,7 @@ import {
   getProvider,
   getConfigValue,
   getExecution,
+  inspectConfiguredProviders,
   listExecutions,
   listTickets,
   loadOpenTopConfig,
@@ -22,7 +23,7 @@ import {
 } from "@opentop/core";
 import { createSqliteExecutionRepository, createSqliteTicketRepository } from "@opentop/db";
 import { getRepositoryStatus, GitExecutionWorkspace } from "@opentop/git";
-import { createProviderAdapter } from "@opentop/providers";
+import { createProviderAdapter, inspectProviderRuntime } from "@opentop/providers";
 
 const repoQuerySchema = z.object({
   repoPath: z.string().optional()
@@ -98,6 +99,19 @@ export function buildServer() {
           user
         }
       }
+    };
+  });
+
+  server.get("/providers", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const config = await loadOpenTopConfig(undefined, targetDirectory);
+    const providers = await inspectConfiguredProviders(config, {
+      inspect: inspectProviderRuntime
+    });
+
+    return {
+      repository: targetDirectory,
+      providers
     };
   });
 

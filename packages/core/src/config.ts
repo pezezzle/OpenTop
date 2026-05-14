@@ -68,6 +68,8 @@ export const openTopConfigSchema = z.object({
 
 export type OpenTopConfig = z.infer<typeof openTopConfigSchema>;
 export type OpenTopConfigScope = "effective" | "project" | "user";
+export type OpenTopProviderConfig = z.infer<typeof providerSchema>;
+export type OpenTopModelConfig = z.infer<typeof modelSchema>;
 
 export async function loadOpenTopConfig(path?: string, startDirectory = process.cwd()): Promise<OpenTopConfig> {
   const configPath = path ? resolve(path) : await findOpenTopConfig(startDirectory);

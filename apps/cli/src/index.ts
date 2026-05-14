@@ -18,6 +18,7 @@ import {
   getExecution,
   listTickets,
   listExecutions,
+  inspectConfiguredProviders,
   loadOpenTopConfig,
   loadOpenTopProjectContext,
   startExecutionForStoredTicket,
@@ -29,7 +30,7 @@ import {
 } from "@opentop/core";
 import { createSqliteExecutionRepository, createSqliteTicketRepository } from "@opentop/db";
 import { getRepositoryStatus, GitExecutionWorkspace } from "@opentop/git";
-import { createProviderAdapter } from "@opentop/providers";
+import { createProviderAdapter, inspectProviderRuntime } from "@opentop/providers";
 import { startDashboard } from "./dashboard.js";
 
 const program = new Command();
@@ -43,6 +44,8 @@ const shellHelpItems = [
   ],
   ["executions list [--json]", "List locally stored executions"],
   ["executions show <id> [--json]", "Show one stored execution"],
+  ["providers list [--json]", "Inspect configured providers"],
+  ["providers doctor [--json]", "Show provider health and compatibility warnings"],
   ["classify <ticketId>", "Classify a stored ticket"],
   ["prompt <ticketId> [--json]", "Build a controlled prompt"],
   ["run <ticketId> [--branch-policy new|reuse-current|manual|none]", "Run an execution end-to-end"],
@@ -263,6 +266,7 @@ ticketsCommand
   });
 
 const executionsCommand = program.command("executions").description("Inspect locally stored OpenTop executions");
+const providersCommand = program.command("providers").description("Inspect configured OpenTop providers");
 
 executionsCommand
   .command("list")
@@ -307,6 +311,22 @@ executionsCommand
     console.log(`Branch: ${execution.branchName}`);
     console.log(`Profile: ${execution.profileId}`);
     console.log(`Model: ${execution.providerId}/${execution.modelId}`);
+  });
+
+providersCommand
+  .command("list")
+  .description("List configured providers and their runtime health")
+  .option("--json", "Print provider status as JSON")
+  .action(async (options: { json?: boolean }) => {
+    await printProviderStatuses(getTargetRepositoryPath(), options.json ?? false);
+  });
+
+providersCommand
+  .command("doctor")
+  .description("Show provider compatibility warnings and runtime checks")
+  .option("--json", "Print provider status as JSON")
+  .action(async (options: { json?: boolean }) => {
+    await printProviderStatuses(getTargetRepositoryPath(), options.json ?? false);
   });
 
 program
@@ -638,6 +658,10 @@ async function printStatus(targetDirectory: string): Promise<void> {
     createSqliteExecutionRepository({ startDirectory: targetDirectory })
   ]);
   const [tickets, executions] = await Promise.all([listTickets(ticketRepository), listExecutions(executionRepository)]);
+  const providers = await inspectConfiguredProviders(config, {
+    inspect: inspectProviderRuntime
+  });
+  const providerWarnings = providers.filter((provider) => provider.status !== "ready").length;
 
   printSection("Status");
   printKeyValueRows([
@@ -648,13 +672,67 @@ async function printStatus(targetDirectory: string): Promise<void> {
     ["Current Branch", repositoryStatus.currentBranch],
     ["Working Tree", repositoryStatus.isClean ? colorize("clean", "green") : colorize("dirty", "yellow")],
     ["Stored Tickets", String(tickets.length)],
-    ["Stored Executions", String(executions.length)]
+    ["Stored Executions", String(executions.length)],
+    [
+      "Providers",
+      providerWarnings > 0
+        ? `${providers.length} configured, ${colorize(String(providerWarnings), "yellow")} need attention`
+        : `${providers.length} configured, ${colorize("all ready", "green")}`
+    ]
   ]);
 
   if (repositoryStatus.changedFiles.length > 0) {
     console.log("");
     printSubsection("Changed Files");
     printBulletList(repositoryStatus.changedFiles);
+  }
+}
+
+async function printProviderStatuses(targetDirectory: string, asJson: boolean): Promise<void> {
+  const config = await loadOpenTopConfig(undefined, targetDirectory);
+  const providers = await inspectConfiguredProviders(config, {
+    inspect: inspectProviderRuntime
+  });
+
+  if (asJson) {
+    console.log(JSON.stringify(providers, null, 2));
+    return;
+  }
+
+  if (providers.length === 0) {
+    printMuted("No providers configured.");
+    return;
+  }
+
+  printSection("Providers");
+  printTable(
+    ["ID", "Type", "Status", "Models", "Command"],
+    providers.map((provider) => [
+      provider.providerId,
+      provider.type,
+      formatProviderStatus(provider.status),
+      provider.modelTiers.length === 0
+        ? colorize("(none)", "gray")
+        : provider.modelTiers.map((modelTier) => `${modelTier.tier}=${modelTier.model}`).join(", "),
+      provider.command ?? "(none)"
+    ])
+  );
+
+  for (const provider of providers) {
+    console.log("");
+    printSubsection(`${provider.providerId} details`);
+    printKeyValueRows([
+      ["Available", provider.available ? colorize("yes", "green") : colorize("no", "red")],
+      ["Version", provider.version ?? "(unknown)"]
+    ]);
+
+    if (provider.issues.length > 0) {
+      printBulletList(
+        provider.issues.map((issue) => `[${issue.severity}] ${issue.message}`)
+      );
+    } else {
+      printBulletList(["No provider issues detected."]);
+    }
   }
 }
 
@@ -990,6 +1068,9 @@ async function executeShellCommand(
       case "executions":
         await executeExecutionsShellCommand(rest, targetDirectory);
         return true;
+      case "providers":
+        await executeProvidersShellCommand(rest, targetDirectory);
+        return true;
       case "classify":
         await executeClassifyShellCommand(rest, targetDirectory);
         return true;
@@ -1124,6 +1205,18 @@ async function executeExecutionsShellCommand(tokens: string[], targetDirectory: 
   }
 
   throw new Error("Unsupported executions command. Use `executions list` or `executions show <id>`.");
+}
+
+async function executeProvidersShellCommand(tokens: string[], targetDirectory: string): Promise<void> {
+  const subcommand = tokens[0];
+  const json = hasFlag(tokens.slice(1), "--json");
+
+  if (subcommand === "list" || subcommand === "doctor") {
+    await printProviderStatuses(targetDirectory, json);
+    return;
+  }
+
+  throw new Error("Unsupported providers command. Use `providers list` or `providers doctor`.");
 }
 
 async function executeClassifyShellCommand(tokens: string[], targetDirectory: string): Promise<void> {
@@ -1487,6 +1580,18 @@ function formatBranchDecision(decision: string): string {
 
 function formatBranchPolicyValue(value: string | undefined): string {
   return value ? colorize(value, "blue") : colorize("(not set)", "gray");
+}
+
+function formatProviderStatus(status: string): string {
+  if (status === "ready") {
+    return colorize(status, "green");
+  }
+
+  if (status === "warning") {
+    return colorize(status, "yellow");
+  }
+
+  return colorize(status, "red");
 }
 
 function getViewportWidth(): number {
