@@ -72,6 +72,15 @@ export default async function ExecutionDetailPage({ params }: { params: Promise<
             <h2>Prompt Snapshot</h2>
             <pre className="prompt-preview">{execution.promptSnapshot}</pre>
           </article>
+
+          <article className="panel panel-wide">
+            <h2>Execution Logs</h2>
+            {execution.logs.length === 0 ? (
+              <p className="empty-state">No execution logs have been recorded yet.</p>
+            ) : (
+              <pre className="prompt-preview">{execution.logs.join("\n")}</pre>
+            )}
+          </article>
         </section>
       </main>
     );

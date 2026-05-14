@@ -322,18 +322,17 @@ Completed foundation:
 - Stored local tickets.
 - `classify <id>` backed by stored tickets.
 - PromptBuilder based on ticket, classification, profile, rules, and project context.
-- Stored planned executions.
+- Stored executions with branch preparation.
 - Branch policy resolution.
 - Web board, ticket detail, execution detail, and settings.
 
 Next implementation steps:
 
-1. Add real Git branch creation from branch policy decisions.
-2. Execute provider adapters.
-3. Run configured checks.
-4. Collect changed files and logs.
-5. Create draft pull requests.
-6. Add approval gates in the Web UI.
+1. Execute provider adapters.
+2. Run configured checks.
+3. Collect changed files and logs.
+4. Create draft pull requests.
+5. Add approval gates in the Web UI.
 
 The implementation order keeps the architecture clean while moving toward a usable local MVP.
 

@@ -91,13 +91,13 @@ pnpm cli:dev -- prompt \
   --json
 ```
 
-## Create a Planned Execution
+## Start an Execution
 
 ```bash
 pnpm cli:dev -- run 1
 ```
 
-This stores a planned execution in `.opentop/state/opentop.db`, including the execution status, branch name, prompt snapshot, classification snapshot, and placeholders for logs and changed files.
+This creates an execution record in `.opentop/state/opentop.db`, resolves branch policy, prepares or reuses a branch when needed, and stores the execution status, branch name, prompt snapshot, classification snapshot, and execution logs.
 
 Inspect stored executions:
 
@@ -145,7 +145,7 @@ q / Esc        exit
 Tickets panel:
 c              classify selected ticket
 p              preview prompt
-x              create planned execution
+x              start execution and prepare branch
 ```
 
 ## Configure Branch Policy

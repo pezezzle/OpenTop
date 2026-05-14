@@ -155,7 +155,7 @@ failed
 cancelled
 ```
 
-Current `run` behavior stores a `planned` execution.
+Current `run` behavior creates an execution record, prepares or reuses a branch when needed, and leaves the execution in `queued` or `failed` before provider work begins.
 
 ## Branch Policy
 
@@ -208,5 +208,4 @@ executions
 
 The `tickets` table stores normalized ticket input.
 
-The `executions` table stores planned execution snapshots, including prompt and classification snapshots.
-
+The `executions` table stores execution snapshots, including prompt snapshots, classification snapshots, branch names, logs, and later changed-file or PR metadata.

@@ -12,14 +12,13 @@
 - Codex CLI and custom shell adapter baseline.
 - Local ticket persistence.
 - PromptBuilder based on project context and memory.
-- Persistent planned executions.
+- Persistent executions with branch preparation and logs.
 - Branch policy resolution.
 - Web board, ticket detail, execution detail, and settings.
 - CLI local linking and dashboard startup command.
 
 ## 0.2
 
-- Git branch creation from execution plans.
 - Configurable build and test checks.
 - Real provider execution.
 - Real execution logs.

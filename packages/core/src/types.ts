@@ -79,6 +79,14 @@ export interface ExecutionCreateInput {
   pullRequestUrl?: string;
 }
 
+export interface ExecutionUpdateInput {
+  status?: ExecutionStatus;
+  branchName?: string;
+  logs?: string[];
+  changedFiles?: string[];
+  pullRequestUrl?: string;
+}
+
 export interface ExecutionPlan {
   ticket: Ticket;
   classification: Classification;
@@ -104,6 +112,11 @@ export interface ExecutionBranchResolution {
   repositoryState: RepositoryState;
 }
 
+export interface ExecutionWorkspacePreparation {
+  branchName: string;
+  logs: string[];
+}
+
 export interface OpenTopProjectContext {
   rootDirectory: string;
   projectContext?: string;
@@ -126,16 +139,24 @@ export interface BuiltPrompt {
   sources: string[];
 }
 
-export type PreparedExecutionResult =
+export type ExecutionRunResult =
   | {
       status: "blocked";
       executionPlan: ExecutionPlan;
       branchResolution: ExecutionBranchResolution;
     }
   | {
-      status: "planned";
+      status: "queued";
       execution: Execution;
       executionPlan: ExecutionPlan;
       sources: string[];
       branchResolution: ExecutionBranchResolution;
+    }
+  | {
+      status: "failed";
+      execution: Execution;
+      executionPlan: ExecutionPlan;
+      sources: string[];
+      branchResolution: ExecutionBranchResolution;
+      error: string;
     };

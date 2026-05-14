@@ -1,4 +1,12 @@
-import type { Execution, ExecutionCreateInput, Ticket, TicketCreateInput } from "./types.js";
+import type {
+  Execution,
+  ExecutionBranchResolution,
+  ExecutionCreateInput,
+  ExecutionUpdateInput,
+  ExecutionWorkspacePreparation,
+  Ticket,
+  TicketCreateInput
+} from "./types.js";
 
 export interface TicketRepository {
   create(input: TicketCreateInput): Promise<Ticket>;
@@ -11,4 +19,9 @@ export interface ExecutionRepository {
   findById(id: string): Promise<Execution | null>;
   list(): Promise<Execution[]>;
   listByTicketId(ticketId: string): Promise<Execution[]>;
+  update(id: string, input: ExecutionUpdateInput): Promise<Execution>;
+}
+
+export interface ExecutionWorkspace {
+  prepareBranch(resolution: ExecutionBranchResolution): Promise<ExecutionWorkspacePreparation>;
 }

@@ -13,7 +13,9 @@ create ticket
 -> create execution plan
 -> build controlled prompt
 -> resolve branch policy
--> store planned execution
+-> store execution record
+-> prepare or reuse branch
+-> queue execution
 -> show execution in Web and CLI
 ```
 
@@ -90,9 +92,9 @@ Important current behavior:
 - `reuse-current` on the default branch resolves to a new branch
 - `plan_only` and `review_only` can avoid branch work
 
-## Step 6: Store Planned Execution
+## Step 6: Store Execution and Prepare the Workspace
 
-`opentop run <ticketId>` currently stores a planned execution.
+`opentop run <ticketId>` now creates an execution record and prepares the Git workspace when the selected mode needs one.
 
 It stores:
 
@@ -104,8 +106,14 @@ It stores:
 - branch name
 - prompt snapshot
 - classification snapshot
-- empty logs
+- execution logs
 - empty changed files
+
+Current behavior:
+
+- `blocked` if the branch policy or working tree prevents a safe run
+- `queued` when branch preparation succeeds or no branch is needed
+- `failed` when branch preparation itself fails after the execution record was created
 
 ## Intended Future Flow
 
@@ -130,15 +138,13 @@ load ticket
 
 ## Current Gap
 
-The current execution flow stops at `planned`.
+The current execution flow stops at `queued`.
 
 Still missing:
 
-- real branch creation
 - provider execution
 - test/build command execution
 - changed-file capture
 - draft PR creation
 - log streaming
 - approval gates in Web
-

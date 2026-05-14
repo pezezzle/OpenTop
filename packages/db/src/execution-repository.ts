@@ -5,6 +5,7 @@ import type {
   Classification,
   Execution,
   ExecutionCreateInput,
+  ExecutionUpdateInput,
   ExecutionRepository
 } from "@opentop/core";
 import { createOpenTopSqliteContext, persistDatabase, type SqliteRepositoryOptions } from "./database.js";
@@ -74,6 +75,37 @@ export class SqliteExecutionRepository implements ExecutionRepository {
       .all();
 
     return rows.map(mapExecutionRow);
+  }
+
+  async update(id: string, input: ExecutionUpdateInput): Promise<Execution> {
+    const numericId = Number(id);
+
+    if (!Number.isInteger(numericId)) {
+      throw new Error(`Execution "${id}" is not a valid numeric execution ID.`);
+    }
+
+    const existing = this.database.select().from(executionsTable).where(eq(executionsTable.id, numericId)).get();
+
+    if (!existing) {
+      throw new Error(`Execution "${id}" was not found in the local OpenTop store.`);
+    }
+
+    const updated = this.database
+      .update(executionsTable)
+      .set({
+        status: input.status ?? existing.status,
+        branchName: input.branchName ?? existing.branchName,
+        logs: input.logs ? JSON.stringify(input.logs) : existing.logs,
+        changedFiles: input.changedFiles ? JSON.stringify(input.changedFiles) : existing.changedFiles,
+        pullRequestUrl: input.pullRequestUrl ?? existing.pullRequestUrl,
+        updatedAt: new Date().toISOString()
+      })
+      .where(eq(executionsTable.id, numericId))
+      .returning()
+      .get();
+
+    await persistDatabase(this.sqlite, this.filePath);
+    return mapExecutionRow(updated);
   }
 }
 

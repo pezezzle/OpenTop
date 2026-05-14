@@ -70,7 +70,7 @@ Shows:
 - classification
 - prompt preview
 - execution history
-- `Plan execution` action
+- `Start execution` action
 
 ### Execution Detail
 
@@ -89,6 +89,7 @@ Shows:
 - provider and model
 - classification snapshot
 - prompt snapshot
+- execution logs
 
 ### Settings
 
@@ -140,4 +141,3 @@ The Web UI does not yet:
 - open draft pull requests
 - manage providers and model tiers
 - display multi-project state
-

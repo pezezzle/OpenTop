@@ -28,7 +28,7 @@ export default async function TicketDetailPage({ params }: { params: Promise<{ t
             </Link>
             <form action={runTicketAction}>
               <input name="ticketId" type="hidden" value={detail.ticket.id} />
-              <button type="submit">Plan execution</button>
+              <button type="submit">Start execution</button>
             </form>
           </div>
         </header>

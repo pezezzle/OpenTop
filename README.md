@@ -140,7 +140,7 @@ q / Esc        exit
 Tickets panel:
 c              classify selected ticket
 p              preview prompt
-x              create planned execution
+x              start execution and prepare branch
 ```
 
 OpenTop treats the Web app as the primary user interface. The CLI remains for setup, automation, and power-user workflows.

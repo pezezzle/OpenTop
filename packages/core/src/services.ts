@@ -4,14 +4,14 @@ import { classifyTicket } from "./classifier.js";
 import type { OpenTopConfig } from "./config.js";
 import { createExecutionPlan } from "./execution.js";
 import { buildAgentPrompt } from "./prompt-builder.js";
-import type { ExecutionRepository, TicketRepository } from "./repositories.js";
+import type { ExecutionRepository, ExecutionWorkspace, TicketRepository } from "./repositories.js";
 import type {
   BuiltPrompt,
   Classification,
   Execution,
+  ExecutionRunResult,
   ExecutionPlan,
   OpenTopProjectContext,
-  PreparedExecutionResult,
   RepositoryState,
   Ticket,
   TicketCreateInput
@@ -67,15 +67,16 @@ export async function planExecutionForStoredTicket(
   return createExecutionPlan({ ...ticket, classification }, config);
 }
 
-export async function createPlannedExecutionForStoredTicket(
+export async function startExecutionForStoredTicket(
   ticketRepository: TicketRepository,
   executionRepository: ExecutionRepository,
+  executionWorkspace: ExecutionWorkspace,
   config: OpenTopConfig,
   projectContext: OpenTopProjectContext,
   ticketId: string,
   repositoryState: RepositoryState,
   branchPolicyOverride?: ExecutionBranchPolicy
-): Promise<PreparedExecutionResult> {
+): Promise<ExecutionRunResult> {
   const ticket = await getRequiredTicket(ticketRepository, ticketId);
   const classification = classifyTicket(ticket, config);
   const baseExecutionPlan = createExecutionPlan({ ...ticket, classification }, config);
@@ -112,13 +113,61 @@ export async function createPlannedExecutionForStoredTicket(
     changedFiles: []
   });
 
-  return {
-    status: "planned",
-    execution,
-    executionPlan: builtPrompt.executionPlan,
-    sources: builtPrompt.sources,
-    branchResolution
-  };
+  const executionLogs = [
+    `Execution created for ticket ${executionPlan.ticket.id}.`,
+    `Branch policy "${branchResolution.policy}" resolved to decision "${branchResolution.decision}".`,
+    branchResolution.reason
+  ];
+
+  if (branchResolution.decision === "none") {
+    const queuedExecution = await executionRepository.update(execution.id, {
+      status: "queued",
+      logs: [...executionLogs, "No working branch was required for this execution mode."]
+    });
+
+    return {
+      status: "queued",
+      execution: queuedExecution,
+      executionPlan: builtPrompt.executionPlan,
+      sources: builtPrompt.sources,
+      branchResolution
+    };
+  }
+
+  try {
+    const workspacePreparation = await executionWorkspace.prepareBranch(branchResolution);
+    const queuedExecution = await executionRepository.update(execution.id, {
+      status: "queued",
+      branchName: workspacePreparation.branchName,
+      logs: [...executionLogs, ...workspacePreparation.logs]
+    });
+
+    return {
+      status: "queued",
+      execution: queuedExecution,
+      executionPlan: {
+        ...builtPrompt.executionPlan,
+        branchName: workspacePreparation.branchName
+      },
+      sources: builtPrompt.sources,
+      branchResolution
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const failedExecution = await executionRepository.update(execution.id, {
+      status: "failed",
+      logs: [...executionLogs, `Branch preparation failed: ${message}`]
+    });
+
+    return {
+      status: "failed",
+      execution: failedExecution,
+      executionPlan: builtPrompt.executionPlan,
+      sources: builtPrompt.sources,
+      branchResolution,
+      error: message
+    };
+  }
 }
 
 export async function listExecutions(repository: ExecutionRepository): Promise<Execution[]> {

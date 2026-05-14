@@ -10,7 +10,6 @@ import {
   buildAgentPrompt,
   buildPromptForStoredTicket,
   classifyStoredTicket,
-  createPlannedExecutionForStoredTicket,
   getBranchPolicySettings,
   getConfigValue,
   createTicket,
@@ -20,6 +19,7 @@ import {
   listExecutions,
   loadOpenTopConfig,
   loadOpenTopProjectContext,
+  startExecutionForStoredTicket,
   setConfigValue,
   planExecutionForStoredTicket,
   type OpenTopConfigScope,
@@ -27,7 +27,7 @@ import {
   type Ticket
 } from "@opentop/core";
 import { createSqliteExecutionRepository, createSqliteTicketRepository } from "@opentop/db";
-import { getRepositoryStatus } from "@opentop/git";
+import { getRepositoryStatus, GitExecutionWorkspace } from "@opentop/git";
 import { startDashboard } from "./dashboard.js";
 
 const program = new Command();
@@ -43,7 +43,7 @@ const shellHelpItems = [
   ["executions show <id> [--json]", "Show one stored execution"],
   ["classify <ticketId>", "Classify a stored ticket"],
   ["prompt <ticketId> [--json]", "Build a controlled prompt"],
-  ["run <ticketId> [--branch-policy new|reuse-current|manual|none]", "Create a planned execution"],
+  ["run <ticketId> [--branch-policy new|reuse-current|manual|none]", "Start an execution and prepare its branch"],
   ["config get execution.defaultBranchPolicy [--scope effective|project|user]", "Read a config value"],
   ["config set execution.defaultBranchPolicy <value> [--scope project|user]", "Write a config value"],
   ["settings", "Open the settings menu"],
@@ -373,7 +373,7 @@ program
 
 program
   .command("run")
-  .description("Create a planned execution for a stored ticket")
+  .description("Start an execution for a stored ticket")
   .argument("<ticketId>", "Ticket ID")
   .option("--branch-policy <policy>", "Override branch policy for this run", parseExecutionBranchPolicy)
   .action(async (ticketId: string, options: { branchPolicy?: ExecutionBranchPolicy }) => {
@@ -385,9 +385,10 @@ program
       createSqliteExecutionRepository({ startDirectory: targetDirectory }),
       getRepositoryStatus(targetDirectory)
     ]);
-    const result = await createPlannedExecutionForStoredTicket(
+    const result = await startExecutionForStoredTicket(
       ticketRepository,
       executionRepository,
+      new GitExecutionWorkspace(targetDirectory),
       config,
       projectContext,
       ticketId,
@@ -418,12 +419,17 @@ program
           branchResolution: result.branchResolution,
           execution: toExecutionSummary(result.execution),
           executionPlan: result.executionPlan,
-          sources: result.sources
+          sources: result.sources,
+          ...(result.status === "failed" ? { error: result.error } : {})
         },
         null,
         2
       )
     );
+
+    if (result.status === "failed") {
+      process.exitCode = 1;
+    }
   });
 
 await main();
@@ -1159,9 +1165,10 @@ async function executeRunShellCommand(tokens: string[], targetDirectory: string)
     createSqliteExecutionRepository({ startDirectory: targetDirectory }),
     getRepositoryStatus(targetDirectory)
   ]);
-  const result = await createPlannedExecutionForStoredTicket(
+  const result = await startExecutionForStoredTicket(
     ticketRepository,
     executionRepository,
+    new GitExecutionWorkspace(targetDirectory),
     config,
     projectContext,
     ticketId,
@@ -1182,7 +1189,23 @@ async function executeRunShellCommand(tokens: string[], targetDirectory: string)
     return;
   }
 
-  printSection("Execution Planned");
+  if (result.status === "failed") {
+    printSection("Execution Failed");
+    printKeyValueRows([
+      ["Execution", result.execution.id],
+      ["Ticket", result.execution.ticketId],
+      ["Status", formatExecutionStatus(result.execution.status)],
+      ["Branch Decision", formatBranchDecision(result.branchResolution.decision)],
+      ["Branch", result.execution.branchName],
+      ["Reason", result.error]
+    ]);
+    console.log("");
+    printSubsection("Logs");
+    printBulletList(result.execution.logs);
+    return;
+  }
+
+  printSection("Execution Queued");
   printKeyValueRows([
     ["Execution", result.execution.id],
     ["Ticket", result.execution.ticketId],
@@ -1198,6 +1221,9 @@ async function executeRunShellCommand(tokens: string[], targetDirectory: string)
     ["Policy", result.branchResolution.policy],
     ["Reason", result.branchResolution.reason]
   ]);
+  console.log("");
+  printSubsection("Logs");
+  printBulletList(result.execution.logs);
   console.log("");
   printSubsection("Sources");
   printBulletList(result.sources);

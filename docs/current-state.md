@@ -15,7 +15,7 @@ OpenTop currently has:
 - prompt building from ticket, config, project context, memory, and prompt templates
 - local SQLite persistence through `sql.js` and Drizzle
 - stored tickets
-- stored planned executions
+- stored executions with prompt snapshots, branch preparation, and logs
 - branch policy resolution
 - project and user config reads/writes for `execution.defaultBranchPolicy`
 - local CLI linking through `pnpm cli:link`
@@ -30,7 +30,8 @@ create ticket
 -> list ticket
 -> classify ticket
 -> build controlled prompt
--> create planned execution
+-> start execution
+-> prepare or reuse branch
 -> inspect execution
 ```
 
@@ -96,7 +97,7 @@ The API exposes real local data for Web:
 - tickets
 - ticket detail
 - prompt preview
-- planned execution creation
+- execution start with branch preparation
 - executions
 
 The API listens on port `4317` by default.
@@ -107,7 +108,7 @@ The Web UI currently has:
 
 - `/`: execution board
 - `/tickets/[ticketId]`: ticket detail, classification, prompt preview, executions
-- `/executions/[executionId]`: execution detail and prompt snapshot
+- `/executions/[executionId]`: execution detail, prompt snapshot, and execution logs
 - `/settings`: branch policy settings
 
 ## Not Implemented Yet
@@ -115,7 +116,6 @@ The Web UI currently has:
 OpenTop does not yet:
 
 - import real GitHub Issues into the local store
-- create real Git branches during execution
 - run a real AI provider during `run`
 - run configured build/test commands as part of execution
 - collect real changed files from provider output
@@ -136,4 +136,3 @@ The local database lives in:
 This state directory is ignored by Git and should not be committed.
 
 The global `opentop` command is currently a local development link to the built CLI in this repo.
-

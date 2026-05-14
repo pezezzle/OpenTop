@@ -3,7 +3,6 @@ import { stdin as input, stdout as output } from "node:process";
 import {
   buildPromptForStoredTicket,
   classifyStoredTicket,
-  createPlannedExecutionForStoredTicket,
   getBranchPolicySettings,
   getExecution,
   listExecutions,
@@ -11,6 +10,7 @@ import {
   loadOpenTopConfig,
   loadOpenTopProjectContext,
   setConfigValue,
+  startExecutionForStoredTicket,
   type Execution,
   type ExecutionBranchPolicy,
   type OpenTopConfig,
@@ -18,7 +18,7 @@ import {
   type Ticket
 } from "@opentop/core";
 import { createSqliteExecutionRepository, createSqliteTicketRepository } from "@opentop/db";
-import { getRepositoryStatus, type RepositoryStatus } from "@opentop/git";
+import { getRepositoryStatus, GitExecutionWorkspace, type RepositoryStatus } from "@opentop/git";
 
 type PanelId = "overview" | "tickets" | "executions" | "settings" | "help";
 type MessageTone = "info" | "success" | "warning" | "error";
@@ -387,9 +387,10 @@ async function runSelectedTicket(state: DashboardState): Promise<DashboardState>
     getRepositoryStatus(state.targetDirectory)
   ]);
 
-  const result = await createPlannedExecutionForStoredTicket(
+  const result = await startExecutionForStoredTicket(
     ticketRepository,
     executionRepository,
+    new GitExecutionWorkspace(state.targetDirectory),
     state.config,
     state.projectContext,
     ticket.id,
@@ -408,6 +409,19 @@ async function runSelectedTicket(state: DashboardState): Promise<DashboardState>
     };
   }
 
+  if (result.status === "failed") {
+    return {
+      ...refreshed,
+      activePanel: "executions",
+      selectedExecutionIndex: refreshed.executions.findIndex((execution) => execution.id === result.execution.id),
+      executionDetail: result.execution,
+      message: {
+        tone: "error",
+        text: `Execution failed during branch preparation: ${result.error}`
+      }
+    };
+  }
+
   return {
     ...refreshed,
     activePanel: "executions",
@@ -415,7 +429,7 @@ async function runSelectedTicket(state: DashboardState): Promise<DashboardState>
     executionDetail: result.execution,
     message: {
       tone: "success",
-      text: `Planned execution ${result.execution.id} on branch ${result.execution.branchName}.`
+      text: `Queued execution ${result.execution.id} on branch ${result.execution.branchName}.`
     }
   };
 }
@@ -620,7 +634,7 @@ function renderHelpPanel(width: number): string[] {
     colorize("Tickets Panel", "bold"),
     `${colorize("c", "cyan")}             Load classification preview`,
     `${colorize("p", "cyan")}             Load prompt preview`,
-    `${colorize("x", "cyan")}             Create planned execution`,
+    `${colorize("x", "cyan")}             Start execution and prepare branch`,
     "",
     colorize("Settings Panel", "bold"),
     `${colorize("Enter", "cyan")}         Cycle project branch policy`,

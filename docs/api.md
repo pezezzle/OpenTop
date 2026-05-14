@@ -141,7 +141,7 @@ Builds and returns the controlled prompt for a stored ticket.
 
 ### `POST /tickets/:ticketId/run`
 
-Creates a planned execution for a stored ticket.
+Starts an execution for a stored ticket.
 
 Optional request field:
 
@@ -151,7 +151,7 @@ Optional request field:
 }
 ```
 
-Current behavior creates a planned execution. It does not yet create a real Git branch or run a provider.
+Current behavior creates an execution record, applies branch policy, and either prepares or reuses the working branch when needed. It does not yet run a provider.
 
 ### `GET /executions`
 
@@ -171,8 +171,6 @@ The API does not yet:
 
 - stream logs
 - execute providers
-- create branches
 - run checks
 - create draft PRs
 - import external tickets
-

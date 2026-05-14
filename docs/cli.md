@@ -109,7 +109,7 @@ opentop prompt 1
 opentop prompt 1 --json
 ```
 
-Create a planned execution:
+Start an execution:
 
 ```powershell
 opentop run 1
@@ -171,4 +171,3 @@ opentop config set execution.defaultBranchPolicy reuse-current --scope user
 `opentop start` is the terminal app.
 
 `opentop` without a subcommand stays command-oriented and prints help.
-
