@@ -155,7 +155,7 @@ failed
 cancelled
 ```
 
-Current `run` behavior creates an execution record, prepares or reuses a branch when needed, and leaves the execution in `queued` or `failed` before provider work begins.
+Current `run` behavior creates an execution record, prepares or reuses a branch when needed, runs the configured provider, and leaves the execution in `succeeded` or `failed`.
 
 ## Branch Policy
 

@@ -29,6 +29,9 @@ importers:
       '@opentop/git':
         specifier: workspace:*
         version: link:../../packages/git
+      '@opentop/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
       fastify:
         specifier: ^5.1.0
         version: 5.8.5
@@ -54,6 +57,9 @@ importers:
       '@opentop/git':
         specifier: workspace:*
         version: link:../../packages/git
+      '@opentop/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
       commander:
         specifier: ^12.1.0
         version: 12.1.0
@@ -157,6 +163,9 @@ importers:
         specifier: workspace:*
         version: link:../shared
     devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.19.19
       typescript:
         specifier: ^5.7.2
         version: 5.9.3

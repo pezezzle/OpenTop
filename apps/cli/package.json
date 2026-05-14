@@ -17,6 +17,7 @@
     "@opentop/core": "workspace:*",
     "@opentop/db": "workspace:*",
     "@opentop/git": "workspace:*",
+    "@opentop/providers": "workspace:*",
     "commander": "^12.1.0"
   },
   "devDependencies": {

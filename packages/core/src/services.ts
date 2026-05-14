@@ -4,7 +4,7 @@ import { classifyTicket } from "./classifier.js";
 import type { OpenTopConfig } from "./config.js";
 import { createExecutionPlan } from "./execution.js";
 import { buildAgentPrompt } from "./prompt-builder.js";
-import type { ExecutionRepository, ExecutionWorkspace, TicketRepository } from "./repositories.js";
+import type { ExecutionProvider, ExecutionRepository, ExecutionWorkspace, TicketRepository } from "./repositories.js";
 import type {
   BuiltPrompt,
   Classification,
@@ -71,6 +71,7 @@ export async function startExecutionForStoredTicket(
   ticketRepository: TicketRepository,
   executionRepository: ExecutionRepository,
   executionWorkspace: ExecutionWorkspace,
+  executionProvider: ExecutionProvider,
   config: OpenTopConfig,
   projectContext: OpenTopProjectContext,
   ticketId: string,
@@ -119,32 +120,70 @@ export async function startExecutionForStoredTicket(
     branchResolution.reason
   ];
 
-  if (branchResolution.decision === "none") {
-    const queuedExecution = await executionRepository.update(execution.id, {
-      status: "queued",
-      logs: [...executionLogs, "No working branch was required for this execution mode."]
-    });
-
-    return {
-      status: "queued",
-      execution: queuedExecution,
-      executionPlan: builtPrompt.executionPlan,
-      sources: builtPrompt.sources,
-      branchResolution
-    };
-  }
-
   try {
-    const workspacePreparation = await executionWorkspace.prepareBranch(branchResolution);
+    const workspacePreparation =
+      branchResolution.decision === "none"
+        ? {
+            branchName: "none",
+            logs: ["No working branch was required for this execution mode."]
+          }
+        : await executionWorkspace.prepareBranch(branchResolution);
     const queuedExecution = await executionRepository.update(execution.id, {
       status: "queued",
       branchName: workspacePreparation.branchName,
       logs: [...executionLogs, ...workspacePreparation.logs]
     });
+    const runningExecution = await executionRepository.update(queuedExecution.id, {
+      status: "running",
+      logs: [
+        ...queuedExecution.logs,
+        `Starting provider "${queuedExecution.providerId}" with model "${queuedExecution.modelId}".`
+      ]
+    });
+    const providerResult = await executionProvider.run({
+      ticketTitle: executionPlan.ticket.title,
+      ticketDescription: executionPlan.ticket.description,
+      repositoryPath: projectContext.rootDirectory,
+      branchName: workspacePreparation.branchName,
+      agentProfile: executionPlan.profile.id,
+      model: executionPlan.modelId,
+      mode: executionPlan.profile.mode,
+      projectRules: projectContext.rules ?? "",
+      prompt: builtPrompt.prompt
+    });
+    const repositoryStateAfterRun = await executionWorkspace.getRepositoryState();
+    const changedFiles = uniqueStrings([
+      ...providerResult.changedFiles,
+      ...repositoryStateAfterRun.changedFiles
+    ]);
+    const finalStatus = providerResult.success ? "succeeded" : "failed";
+    const finalExecution = await executionRepository.update(runningExecution.id, {
+      status: finalStatus,
+      changedFiles,
+      logs: [
+        ...runningExecution.logs,
+        ...normalizeLogEntries(providerResult.logs),
+        `Provider summary: ${providerResult.summary}`
+      ]
+    });
+
+    if (!providerResult.success) {
+      return {
+        status: "failed",
+        execution: finalExecution,
+        executionPlan: {
+          ...builtPrompt.executionPlan,
+          branchName: workspacePreparation.branchName
+        },
+        sources: builtPrompt.sources,
+        branchResolution,
+        error: providerResult.summary
+      };
+    }
 
     return {
-      status: "queued",
-      execution: queuedExecution,
+      status: "succeeded",
+      execution: finalExecution,
       executionPlan: {
         ...builtPrompt.executionPlan,
         branchName: workspacePreparation.branchName
@@ -168,6 +207,17 @@ export async function startExecutionForStoredTicket(
       error: message
     };
   }
+}
+
+function normalizeLogEntries(logs: string[]): string[] {
+  return logs
+    .flatMap((entry) => entry.split(/\r?\n/))
+    .map((entry) => entry.trimEnd())
+    .filter((entry) => entry.length > 0);
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter((value) => value.length > 0))];
 }
 
 export async function listExecutions(repository: ExecutionRepository): Promise<Execution[]> {

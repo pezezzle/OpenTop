@@ -3,12 +3,14 @@ import { stdin as input, stdout as output } from "node:process";
 import {
   buildPromptForStoredTicket,
   classifyStoredTicket,
+  getProvider,
   getBranchPolicySettings,
   getExecution,
   listExecutions,
   listTickets,
   loadOpenTopConfig,
   loadOpenTopProjectContext,
+  planExecutionForStoredTicket,
   setConfigValue,
   startExecutionForStoredTicket,
   type Execution,
@@ -19,6 +21,7 @@ import {
 } from "@opentop/core";
 import { createSqliteExecutionRepository, createSqliteTicketRepository } from "@opentop/db";
 import { getRepositoryStatus, GitExecutionWorkspace, type RepositoryStatus } from "@opentop/git";
+import { createProviderAdapter } from "@opentop/providers";
 
 type PanelId = "overview" | "tickets" | "executions" | "settings" | "help";
 type MessageTone = "info" | "success" | "warning" | "error";
@@ -387,10 +390,16 @@ async function runSelectedTicket(state: DashboardState): Promise<DashboardState>
     getRepositoryStatus(state.targetDirectory)
   ]);
 
+  const executionPlan = await planExecutionForStoredTicket(ticketRepository, state.config, ticket.id);
+  const provider = createProviderAdapter(
+    executionPlan.providerId,
+    getProvider(state.config, executionPlan.providerId)
+  );
   const result = await startExecutionForStoredTicket(
     ticketRepository,
     executionRepository,
     new GitExecutionWorkspace(state.targetDirectory),
+    provider,
     state.config,
     state.projectContext,
     ticket.id,
@@ -417,7 +426,7 @@ async function runSelectedTicket(state: DashboardState): Promise<DashboardState>
       executionDetail: result.execution,
       message: {
         tone: "error",
-        text: `Execution failed during branch preparation: ${result.error}`
+        text: `Execution failed: ${result.error}`
       }
     };
   }
@@ -429,7 +438,7 @@ async function runSelectedTicket(state: DashboardState): Promise<DashboardState>
     executionDetail: result.execution,
     message: {
       tone: "success",
-      text: `Queued execution ${result.execution.id} on branch ${result.execution.branchName}.`
+      text: `Execution ${result.execution.id} finished with status ${result.execution.status}.`
     }
   };
 }
@@ -634,7 +643,7 @@ function renderHelpPanel(width: number): string[] {
     colorize("Tickets Panel", "bold"),
     `${colorize("c", "cyan")}             Load classification preview`,
     `${colorize("p", "cyan")}             Load prompt preview`,
-    `${colorize("x", "cyan")}             Start execution and prepare branch`,
+    `${colorize("x", "cyan")}             Run execution end-to-end`,
     "",
     colorize("Settings Panel", "bold"),
     `${colorize("Enter", "cyan")}         Cycle project branch policy`,

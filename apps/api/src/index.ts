@@ -6,12 +6,14 @@ import {
   classifyStoredTicket,
   createExecutionPlan,
   createTicket,
+  getProvider,
   getConfigValue,
   getExecution,
   listExecutions,
   listTickets,
   loadOpenTopConfig,
   loadOpenTopProjectContext,
+  planExecutionForStoredTicket,
   setConfigValue,
   startExecutionForStoredTicket,
   type ExecutionBranchPolicy,
@@ -20,6 +22,7 @@ import {
 } from "@opentop/core";
 import { createSqliteExecutionRepository, createSqliteTicketRepository } from "@opentop/db";
 import { getRepositoryStatus, GitExecutionWorkspace } from "@opentop/git";
+import { createProviderAdapter } from "@opentop/providers";
 
 const repoQuerySchema = z.object({
   repoPath: z.string().optional()
@@ -202,10 +205,16 @@ export function buildServer() {
       createSqliteExecutionRepository({ startDirectory: targetDirectory }),
       getRepositoryStatus(targetDirectory)
     ]);
+    const executionPlan = await planExecutionForStoredTicket(ticketRepository, config, ticketId);
+    const provider = createProviderAdapter(
+      executionPlan.providerId,
+      getProvider(config, executionPlan.providerId)
+    );
     const result = await startExecutionForStoredTicket(
       ticketRepository,
       executionRepository,
       new GitExecutionWorkspace(targetDirectory),
+      provider,
       config,
       projectContext,
       ticketId,

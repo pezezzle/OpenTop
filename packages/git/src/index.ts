@@ -20,11 +20,14 @@ export interface RepositoryStatus {
 export async function getRepositoryStatus(repositoryPath = process.cwd()): Promise<RepositoryStatus> {
   const git = simpleGit(repositoryPath);
   const status = await git.status();
+  const changedFiles = status.files
+    .map((file) => file.path)
+    .filter((filePath) => !isIgnoredOpenTopStatePath(filePath));
 
   return {
     currentBranch: status.current ?? "unknown",
-    isClean: status.files.length === 0,
-    changedFiles: status.files.map((file) => file.path)
+    isClean: changedFiles.length === 0,
+    changedFiles
   };
 }
 
@@ -35,6 +38,10 @@ export async function createIsolatedBranch(branchName: string, repositoryPath = 
 
 export class GitExecutionWorkspace {
   constructor(private readonly repositoryPath = process.cwd()) {}
+
+  async getRepositoryState(): Promise<RepositoryStatus> {
+    return getRepositoryStatus(this.repositoryPath);
+  }
 
   async prepareBranch(resolution: BranchResolutionLike): Promise<WorkspacePreparationLike> {
     if (resolution.decision === "blocked") {
@@ -94,4 +101,9 @@ export class GitExecutionWorkspace {
       logs: [`Created and checked out execution branch "${resolution.branchName}".`]
     };
   }
+}
+
+function isIgnoredOpenTopStatePath(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, "/");
+  return normalized === ".opentop/state" || normalized.startsWith(".opentop/state/");
 }

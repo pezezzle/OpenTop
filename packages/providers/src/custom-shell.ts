@@ -28,13 +28,16 @@ export class CustomShellProvider implements AiProviderAdapter {
         OPENTOP_BRANCH_NAME: request.branchName,
         OPENTOP_AGENT_PROFILE: request.agentProfile,
         OPENTOP_MODEL: request.model,
-        OPENTOP_EXECUTION_MODE: request.mode
+        OPENTOP_EXECUTION_MODE: request.mode,
+        OPENTOP_PROJECT_RULES: request.projectRules
       },
       shell: true
     });
 
     child.stdout.on("data", (chunk) => logs.push(String(chunk)));
     child.stderr.on("data", (chunk) => logs.push(String(chunk)));
+    child.stdin?.write(request.prompt);
+    child.stdin?.end();
 
     const exitCode = await new Promise<number | null>((resolve) => {
       child.on("close", resolve);

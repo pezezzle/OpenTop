@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { findOpenTopDirectory } from "./config.js";
 import type { OpenTopProjectContext } from "./types.js";
 
@@ -7,15 +7,15 @@ const memoryFiles = ["decisions", "conventions", "risks", "glossary", "known-iss
 const promptFiles = ["bugfix", "feature", "planner", "reviewer"] as const;
 
 export async function loadOpenTopProjectContext(startDirectory = process.cwd()): Promise<OpenTopProjectContext> {
-  const rootDirectory = await findOpenTopDirectory(startDirectory);
+  const openTopDirectory = await findOpenTopDirectory(startDirectory);
 
   return {
-    rootDirectory,
-    projectContext: await readOptionalFile(join(rootDirectory, "project-context.md")),
-    rules: await readOptionalFile(join(rootDirectory, "rules.md")),
-    memory: await readNamedFiles(rootDirectory, "memory", memoryFiles),
-    prompts: await readNamedFiles(rootDirectory, "prompts", promptFiles),
-    pullRequestTemplate: await readOptionalFile(join(rootDirectory, "templates", "pull-request.md"))
+    rootDirectory: dirname(openTopDirectory),
+    projectContext: await readOptionalFile(join(openTopDirectory, "project-context.md")),
+    rules: await readOptionalFile(join(openTopDirectory, "rules.md")),
+    memory: await readNamedFiles(openTopDirectory, "memory", memoryFiles),
+    prompts: await readNamedFiles(openTopDirectory, "prompts", promptFiles),
+    pullRequestTemplate: await readOptionalFile(join(openTopDirectory, "templates", "pull-request.md"))
   };
 }
 

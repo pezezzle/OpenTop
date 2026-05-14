@@ -9,6 +9,7 @@ export interface AgentRunRequest {
   model: string;
   mode: ExecutionMode;
   projectRules: string;
+  prompt: string;
 }
 
 export interface AgentRunResult {

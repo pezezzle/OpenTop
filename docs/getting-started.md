@@ -97,7 +97,7 @@ pnpm cli:dev -- prompt \
 pnpm cli:dev -- run 1
 ```
 
-This creates an execution record in `.opentop/state/opentop.db`, resolves branch policy, prepares or reuses a branch when needed, and stores the execution status, branch name, prompt snapshot, classification snapshot, and execution logs.
+This creates an execution record in `.opentop/state/opentop.db`, resolves branch policy, prepares or reuses a branch when needed, runs the configured provider, and stores the execution status, branch name, prompt snapshot, classification snapshot, execution logs, and changed files.
 
 Inspect stored executions:
 
@@ -145,7 +145,7 @@ q / Esc        exit
 Tickets panel:
 c              classify selected ticket
 p              preview prompt
-x              start execution and prepare branch
+x              run execution
 ```
 
 ## Configure Branch Policy

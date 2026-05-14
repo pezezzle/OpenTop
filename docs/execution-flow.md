@@ -15,7 +15,8 @@ create ticket
 -> resolve branch policy
 -> store execution record
 -> prepare or reuse branch
--> queue execution
+-> start provider
+-> collect logs and changed files
 -> show execution in Web and CLI
 ```
 
@@ -112,8 +113,8 @@ It stores:
 Current behavior:
 
 - `blocked` if the branch policy or working tree prevents a safe run
-- `queued` when branch preparation succeeds or no branch is needed
-- `failed` when branch preparation itself fails after the execution record was created
+- `succeeded` when branch preparation and provider execution complete successfully
+- `failed` when branch preparation or provider execution fails after the execution record was created
 
 ## Intended Future Flow
 
@@ -138,13 +139,12 @@ load ticket
 
 ## Current Gap
 
-The current execution flow stops at `queued`.
+The current execution flow stops after provider execution.
 
 Still missing:
 
-- provider execution
 - test/build command execution
-- changed-file capture
+- richer changed-file and diff capture
 - draft PR creation
 - log streaming
 - approval gates in Web

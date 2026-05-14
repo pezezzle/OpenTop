@@ -90,6 +90,7 @@ Shows:
 - classification snapshot
 - prompt snapshot
 - execution logs
+- changed files
 
 ### Settings
 

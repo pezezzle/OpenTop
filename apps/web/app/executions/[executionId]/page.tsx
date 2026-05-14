@@ -81,6 +81,19 @@ export default async function ExecutionDetailPage({ params }: { params: Promise<
               <pre className="prompt-preview">{execution.logs.join("\n")}</pre>
             )}
           </article>
+
+          <article className="panel">
+            <h2>Changed Files</h2>
+            {execution.changedFiles.length === 0 ? (
+              <p className="empty-state">No changed files have been detected yet.</p>
+            ) : (
+              <ul className="stack-list">
+                {execution.changedFiles.map((file) => (
+                  <li key={file}>{file}</li>
+                ))}
+              </ul>
+            )}
+          </article>
         </section>
       </main>
     );

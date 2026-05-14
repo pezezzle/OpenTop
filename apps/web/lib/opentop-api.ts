@@ -102,6 +102,40 @@ export interface ConfigResponse {
   };
 }
 
+export interface CreateTicketResponse {
+  ticket: {
+    id: string;
+    source: string;
+    externalId?: string;
+    title: string;
+    description: string;
+    labels: string[];
+    status: string;
+  };
+}
+
+export type RunTicketResult =
+  | {
+      status: "blocked";
+      branchResolution: {
+        policy: string;
+        decision: string;
+        branchName?: string;
+        reason: string;
+      };
+    }
+  | {
+      status: "succeeded" | "failed";
+      execution: ExecutionSummary;
+      branchResolution: {
+        policy: string;
+        decision: string;
+        branchName?: string;
+        reason: string;
+      };
+      error?: string;
+    };
+
 export async function getStatus(): Promise<StatusResponse> {
   return apiFetch("/status");
 }
@@ -126,7 +160,26 @@ export async function getConfig(): Promise<ConfigResponse> {
   return apiFetch("/config");
 }
 
-export async function runTicket(ticketId: string): Promise<unknown> {
+export async function createTicket(input: {
+  title: string;
+  description: string;
+  labels: string[];
+  source?: string;
+  externalId?: string;
+}): Promise<CreateTicketResponse> {
+  return apiFetch("/tickets", {
+    method: "POST",
+    body: JSON.stringify({
+      title: input.title,
+      description: input.description,
+      labels: input.labels,
+      source: input.source ?? "manual",
+      externalId: input.externalId
+    })
+  });
+}
+
+export async function runTicket(ticketId: string): Promise<RunTicketResult> {
   return apiFetch(`/tickets/${ticketId}/run`, {
     method: "POST",
     body: JSON.stringify({})

@@ -117,6 +117,25 @@ export interface ExecutionWorkspacePreparation {
   logs: string[];
 }
 
+export interface ExecutionProviderRequest {
+  ticketTitle: string;
+  ticketDescription: string;
+  repositoryPath: string;
+  branchName: string;
+  agentProfile: string;
+  model: string;
+  mode: ExecutionMode;
+  projectRules: string;
+  prompt: string;
+}
+
+export interface ExecutionProviderResult {
+  success: boolean;
+  summary: string;
+  changedFiles: string[];
+  logs: string[];
+}
+
 export interface OpenTopProjectContext {
   rootDirectory: string;
   projectContext?: string;
@@ -146,7 +165,7 @@ export type ExecutionRunResult =
       branchResolution: ExecutionBranchResolution;
     }
   | {
-      status: "queued";
+      status: "succeeded";
       execution: Execution;
       executionPlan: ExecutionPlan;
       sources: string[];

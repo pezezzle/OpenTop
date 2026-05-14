@@ -2,8 +2,11 @@ import type {
   Execution,
   ExecutionBranchResolution,
   ExecutionCreateInput,
+  ExecutionProviderRequest,
+  ExecutionProviderResult,
   ExecutionUpdateInput,
   ExecutionWorkspacePreparation,
+  RepositoryState,
   Ticket,
   TicketCreateInput
 } from "./types.js";
@@ -24,4 +27,9 @@ export interface ExecutionRepository {
 
 export interface ExecutionWorkspace {
   prepareBranch(resolution: ExecutionBranchResolution): Promise<ExecutionWorkspacePreparation>;
+  getRepositoryState(): Promise<RepositoryState>;
+}
+
+export interface ExecutionProvider {
+  run(request: ExecutionProviderRequest): Promise<ExecutionProviderResult>;
 }

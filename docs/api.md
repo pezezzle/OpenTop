@@ -151,7 +151,7 @@ Optional request field:
 }
 ```
 
-Current behavior creates an execution record, applies branch policy, and either prepares or reuses the working branch when needed. It does not yet run a provider.
+Current behavior creates an execution record, applies branch policy, prepares or reuses the working branch when needed, and runs the configured provider synchronously.
 
 ### `GET /executions`
 
@@ -170,7 +170,6 @@ Compatibility endpoint for classifying manual request input without storing a ti
 The API does not yet:
 
 - stream logs
-- execute providers
 - run checks
 - create draft PRs
 - import external tickets

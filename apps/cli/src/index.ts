@@ -10,6 +10,7 @@ import {
   buildAgentPrompt,
   buildPromptForStoredTicket,
   classifyStoredTicket,
+  getProvider,
   getBranchPolicySettings,
   getConfigValue,
   createTicket,
@@ -28,6 +29,7 @@ import {
 } from "@opentop/core";
 import { createSqliteExecutionRepository, createSqliteTicketRepository } from "@opentop/db";
 import { getRepositoryStatus, GitExecutionWorkspace } from "@opentop/git";
+import { createProviderAdapter } from "@opentop/providers";
 import { startDashboard } from "./dashboard.js";
 
 const program = new Command();
@@ -43,7 +45,7 @@ const shellHelpItems = [
   ["executions show <id> [--json]", "Show one stored execution"],
   ["classify <ticketId>", "Classify a stored ticket"],
   ["prompt <ticketId> [--json]", "Build a controlled prompt"],
-  ["run <ticketId> [--branch-policy new|reuse-current|manual|none]", "Start an execution and prepare its branch"],
+  ["run <ticketId> [--branch-policy new|reuse-current|manual|none]", "Run an execution end-to-end"],
   ["config get execution.defaultBranchPolicy [--scope effective|project|user]", "Read a config value"],
   ["config set execution.defaultBranchPolicy <value> [--scope project|user]", "Write a config value"],
   ["settings", "Open the settings menu"],
@@ -385,10 +387,16 @@ program
       createSqliteExecutionRepository({ startDirectory: targetDirectory }),
       getRepositoryStatus(targetDirectory)
     ]);
+    const executionPlan = await planExecutionForStoredTicket(ticketRepository, config, ticketId);
+    const provider = createProviderAdapter(
+      executionPlan.providerId,
+      getProvider(config, executionPlan.providerId)
+    );
     const result = await startExecutionForStoredTicket(
       ticketRepository,
       executionRepository,
       new GitExecutionWorkspace(targetDirectory),
+      provider,
       config,
       projectContext,
       ticketId,
@@ -460,6 +468,8 @@ function toExecutionSummary(execution: {
   modelId: string;
   status: string;
   branchName: string;
+  changedFiles?: string[];
+  logs?: string[];
   createdAt: string;
   updatedAt: string;
 }) {
@@ -471,6 +481,8 @@ function toExecutionSummary(execution: {
     modelId: execution.modelId,
     status: execution.status,
     branchName: execution.branchName,
+    changedFiles: execution.changedFiles ?? [],
+    logs: execution.logs ?? [],
     createdAt: execution.createdAt,
     updatedAt: execution.updatedAt
   };
@@ -1165,10 +1177,16 @@ async function executeRunShellCommand(tokens: string[], targetDirectory: string)
     createSqliteExecutionRepository({ startDirectory: targetDirectory }),
     getRepositoryStatus(targetDirectory)
   ]);
+  const executionPlan = await planExecutionForStoredTicket(ticketRepository, config, ticketId);
+  const provider = createProviderAdapter(
+    executionPlan.providerId,
+    getProvider(config, executionPlan.providerId)
+  );
   const result = await startExecutionForStoredTicket(
     ticketRepository,
     executionRepository,
     new GitExecutionWorkspace(targetDirectory),
+    provider,
     config,
     projectContext,
     ticketId,
@@ -1205,7 +1223,7 @@ async function executeRunShellCommand(tokens: string[], targetDirectory: string)
     return;
   }
 
-  printSection("Execution Queued");
+  printSection("Execution Succeeded");
   printKeyValueRows([
     ["Execution", result.execution.id],
     ["Ticket", result.execution.ticketId],
@@ -1224,6 +1242,9 @@ async function executeRunShellCommand(tokens: string[], targetDirectory: string)
   console.log("");
   printSubsection("Logs");
   printBulletList(result.execution.logs);
+  console.log("");
+  printSubsection("Changed Files");
+  printBulletList(result.execution.changedFiles);
   console.log("");
   printSubsection("Sources");
   printBulletList(result.sources);

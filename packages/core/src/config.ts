@@ -123,6 +123,19 @@ export function getModel(config: OpenTopConfig, tier: string) {
   return model;
 }
 
+export function getProvider(config: OpenTopConfig, id: string) {
+  const provider = config.providers[id];
+
+  if (!provider) {
+    throw new Error(`Provider "${id}" is not defined in OpenTop config.`);
+  }
+
+  return {
+    id,
+    ...provider
+  };
+}
+
 export async function loadUserOpenTopConfig(): Promise<{ execution?: { defaultBranchPolicy?: ExecutionBranchPolicy } }> {
   const userConfigPath = getUserOpenTopConfigPath();
   const raw = await loadOptionalYamlFile(userConfigPath);
