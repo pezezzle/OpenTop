@@ -5,8 +5,15 @@ import { getTicket } from "../../../lib/opentop-api";
 
 export const dynamic = "force-dynamic";
 
-export default async function TicketDetailPage({ params }: { params: Promise<{ ticketId: string }> }) {
+export default async function TicketDetailPage({
+  params,
+  searchParams
+}: {
+  params: Promise<{ ticketId: string }>;
+  searchParams: Promise<{ created?: string; run?: string }>;
+}) {
   const { ticketId } = await params;
+  const query = await searchParams;
 
   try {
     const detail = await getTicket(ticketId);
@@ -32,6 +39,16 @@ export default async function TicketDetailPage({ params }: { params: Promise<{ t
             </form>
           </div>
         </header>
+
+        {query.created === "1" ? (
+          <section className="notice notice-success">Ticket created. You can inspect the prompt or start the execution now.</section>
+        ) : null}
+
+        {query.run === "blocked" ? (
+          <section className="notice notice-warning">
+            Execution was blocked. Check the working tree and branch policy before trying again.
+          </section>
+        ) : null}
 
         <section className="detail-grid">
           <article className="panel">

@@ -297,6 +297,12 @@ nav a.active,
   padding-bottom: 0.4rem;
 }
 
+.overview-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .lane {
   border-radius: var(--radius-xl);
   display: grid;
@@ -396,11 +402,65 @@ nav a.active,
   margin: 0 auto;
 }
 
+.stack-form {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.field span {
+  color: var(--muted);
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.field input,
+.field textarea {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(183, 197, 186, 0.85);
+  border-radius: var(--radius-md);
+  color: var(--ink);
+  padding: 0.85rem 0.95rem;
+}
+
+.field textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+.field input:focus,
+.field textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(19, 111, 99, 0.12);
+  outline: none;
+}
+
 .detail-actions {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.75rem;
+}
+
+.notice {
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(183, 197, 186, 0.7);
+  font-weight: 700;
+  padding: 0.95rem 1.1rem;
+}
+
+.notice-success {
+  background: var(--good-soft);
+  color: var(--good);
+}
+
+.notice-warning {
+  background: var(--warning-soft);
+  color: var(--warning);
 }
 
 .detail-grid {
@@ -483,6 +543,10 @@ nav a.active,
 
   .board {
     grid-template-columns: repeat(3, minmax(16rem, 1fr));
+  }
+
+  .overview-grid {
+    grid-template-columns: 1fr;
   }
 
   .detail-grid {

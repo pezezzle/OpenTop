@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { createTicketAction } from "./actions";
 import { getConfig, getExecutions, getStatus, getTickets, type TicketSummary } from "../lib/opentop-api";
 
 export const dynamic = "force-dynamic";
@@ -69,6 +70,46 @@ export default async function Home() {
             <span>Stored executions: {status.storedExecutions}</span>
           </div>
         </header>
+
+        <section className="overview-grid">
+          <article className="panel">
+            <h2>Create Ticket</h2>
+            <form action={createTicketAction} className="stack-form">
+              <label className="field">
+                <span>Title</span>
+                <input name="title" placeholder="Provider smoke test" required type="text" />
+              </label>
+              <label className="field">
+                <span>Description</span>
+                <textarea name="description" placeholder="Describe the ticket in one or two concrete sentences." rows={4} />
+              </label>
+              <label className="field">
+                <span>Labels</span>
+                <input name="labels" placeholder="bug, ui, auth" type="text" />
+              </label>
+              <button type="submit">Create ticket</button>
+            </form>
+          </article>
+
+          <article className="panel">
+            <h2>Recent Executions</h2>
+            {executionResponse.executions.length === 0 ? (
+              <p className="empty-state">No executions stored yet.</p>
+            ) : (
+              <div className="list-grid">
+                {executionResponse.executions.slice(0, 4).map((execution) => (
+                  <Link className="execution-card" href={`/executions/${execution.id}`} key={execution.id}>
+                    <strong>Execution #{execution.id}</strong>
+                    <span>{execution.status}</span>
+                    <small>
+                      Ticket #{execution.ticketId} · {execution.branchName}
+                    </small>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </article>
+        </section>
 
         <section className="board" aria-label="Ticket execution board">
           {lanes.map((lane) => (

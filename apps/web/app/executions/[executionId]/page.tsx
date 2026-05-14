@@ -4,8 +4,15 @@ import { getExecution } from "../../../lib/opentop-api";
 
 export const dynamic = "force-dynamic";
 
-export default async function ExecutionDetailPage({ params }: { params: Promise<{ executionId: string }> }) {
+export default async function ExecutionDetailPage({
+  params,
+  searchParams
+}: {
+  params: Promise<{ executionId: string }>;
+  searchParams: Promise<{ run?: string }>;
+}) {
   const { executionId } = await params;
+  const query = await searchParams;
 
   try {
     const { execution } = await getExecution(executionId);
@@ -26,6 +33,16 @@ export default async function ExecutionDetailPage({ params }: { params: Promise<
             </Link>
           </div>
         </header>
+
+        {query.run === "succeeded" ? (
+          <section className="notice notice-success">Execution completed successfully. Review logs and changed files below.</section>
+        ) : null}
+
+        {query.run === "failed" ? (
+          <section className="notice notice-warning">
+            Execution failed. Review the logs below to understand what the provider returned.
+          </section>
+        ) : null}
 
         <section className="detail-grid">
           <article className="panel">
