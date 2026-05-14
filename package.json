@@ -9,14 +9,14 @@
     "api": "pnpm --filter @opentop/api dev",
     "build": "turbo build",
     "cli:build": "pnpm --filter @opentop/cli build",
-    "cli:link": "pnpm --filter @opentop/cli build && pnpm --dir apps/cli exec npm link",
+    "cli:link": "pnpm --filter @opentop/cli build && node scripts/link-local-cli.mjs",
     "cli:dev": "pnpm --filter @opentop/cli dev",
-    "cli:unlink": "pnpm --dir apps/cli exec npm unlink --global",
+    "cli:unlink": "node scripts/unlink-local-cli.mjs",
     "dev": "turbo dev",
     "lint": "turbo lint",
     "test": "turbo test",
     "typecheck": "turbo typecheck",
-    "web": "pnpm --filter @opentop/web dev -- --port 3000"
+    "web": "pnpm --filter @opentop/web exec next dev --port 3000"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

@@ -1,80 +1,111 @@
-import { OPENTOP_CLAIM, OPENTOP_FULL_NAME } from "@opentop/shared";
+import Link from "next/link";
+import { getConfig, getExecutions, getStatus, getTickets, type TicketSummary } from "../lib/opentop-api";
 
-const columns = [
-  {
-    title: "Inbox",
-    count: 3,
-    items: ["GitHub import", "Manual ticket", "Needs triage"]
-  },
-  {
-    title: "Classified",
-    count: 2,
-    items: ["Bugfix route", "Architecture route"]
-  },
-  {
-    title: "Ready",
-    count: 1,
-    items: ["Approval pending"]
-  },
-  {
-    title: "Running",
-    count: 1,
-    items: ["opentop/issue-123"]
-  },
-  {
-    title: "Review",
-    count: 1,
-    items: ["Draft PR open"]
-  },
-  {
-    title: "Done",
-    count: 0,
-    items: []
-  }
-];
+export const dynamic = "force-dynamic";
 
-export default function Home() {
+const lanes: Array<TicketSummary["workflowStage"]> = ["Inbox", "Classified", "Ready", "Running", "Review", "Done"];
+
+export default async function Home() {
+  const [status, ticketResponse, executionResponse, config] = await Promise.all([
+    getStatus(),
+    getTickets(),
+    getExecutions(),
+    getConfig()
+  ]);
+
+  const ticketsByLane = Object.fromEntries(
+    lanes.map((lane) => [lane, ticketResponse.tickets.filter((ticket) => ticket.workflowStage === lane)])
+  ) as Record<(typeof lanes)[number], TicketSummary[]>;
+
   return (
     <main className="shell">
       <aside className="sidebar">
         <div>
           <p className="eyebrow">OpenTop</p>
-          <h1>{OPENTOP_FULL_NAME}</h1>
-          <p className="claim">{OPENTOP_CLAIM}</p>
+          <h1>Open Ticket Orchestrator Platform</h1>
+          <p className="claim">The control plane for agentic software development.</p>
         </div>
+
         <nav aria-label="Primary">
-          <a className="active" href="/">
+          <Link className="active" href="/">
             Board
-          </a>
-          <a href="/">Tickets</a>
-          <a href="/">Executions</a>
-          <a href="/">Config</a>
+          </Link>
+          <Link href="/settings">Settings</Link>
         </nav>
+
+        <section className="status-card">
+          <p className="eyebrow">Repository</p>
+          <strong>{status.project}</strong>
+          <span>{status.repository}</span>
+          <dl>
+            <div>
+              <dt>Branch</dt>
+              <dd>{status.currentBranch}</dd>
+            </div>
+            <div>
+              <dt>Policy</dt>
+              <dd>{status.branchPolicy}</dd>
+            </div>
+            <div>
+              <dt>Tree</dt>
+              <dd className={status.isClean ? "tone-good" : "tone-warn"}>{status.isClean ? "clean" : "dirty"}</dd>
+            </div>
+          </dl>
+        </section>
       </aside>
 
       <section className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Local control plane</p>
+            <p className="eyebrow">Primary Interface</p>
             <h2>Execution Board</h2>
+            <p className="subline">
+              {ticketResponse.tickets.length} tickets, {executionResponse.executions.length} executions, effective policy{" "}
+              <strong>{config.execution.defaultBranchPolicy.effective ?? "unknown"}</strong>
+            </p>
           </div>
-          <button type="button">Run selected</button>
+          <div className="topbar-meta">
+            <span>Default branch: {status.defaultBranch}</span>
+            <span>Stored executions: {status.storedExecutions}</span>
+          </div>
         </header>
 
         <section className="board" aria-label="Ticket execution board">
-          {columns.map((column) => (
-            <article className="lane" key={column.title}>
+          {lanes.map((lane) => (
+            <article className="lane" key={lane}>
               <header>
-                <h3>{column.title}</h3>
-                <span>{column.count}</span>
+                <h3>{lane}</h3>
+                <span>{ticketsByLane[lane].length}</span>
               </header>
+
               <div className="cards">
-                {column.items.map((item) => (
-                  <div className="ticket" key={item}>
-                    <strong>{item}</strong>
-                    <small>Profile, model, risk, and mode visible here.</small>
-                  </div>
-                ))}
+                {ticketsByLane[lane].length === 0 ? (
+                  <p className="empty-state">No tickets in this stage.</p>
+                ) : (
+                  ticketsByLane[lane].map((ticket) => (
+                    <Link className="ticket" href={`/tickets/${ticket.id}`} key={ticket.id}>
+                      <div className="ticket-header">
+                        <strong>{ticket.title}</strong>
+                        <small>#{ticket.id}</small>
+                      </div>
+                      <p>{ticket.description || "No description provided."}</p>
+                      <dl className="ticket-meta">
+                        <div>
+                          <dt>Risk</dt>
+                          <dd>{ticket.classification.risk}</dd>
+                        </div>
+                        <div>
+                          <dt>Profile</dt>
+                          <dd>{ticket.executionPlan.profile.id}</dd>
+                        </div>
+                        <div>
+                          <dt>Mode</dt>
+                          <dd>{ticket.classification.suggestedMode}</dd>
+                        </div>
+                      </dl>
+                    </Link>
+                  ))
+                )}
               </div>
             </article>
           ))}

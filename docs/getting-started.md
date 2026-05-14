@@ -124,8 +124,28 @@ opentop --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox tickets list
 Interactive CLI:
 
 ```bash
+opentop
 opentop start
+opentop dashboard
+opentop shell
 opentop settings
+```
+
+`opentop` without a subcommand prints the command help. `opentop start` opens the terminal app. `opentop dashboard` starts API and Web for the selected repository and opens the browser on `http://localhost:3000`. `opentop shell` keeps the text shell available.
+
+Dashboard shortcuts:
+
+```text
+Tab / h / l    switch panels
+j / k          move selection
+Enter          primary action
+r              refresh
+q / Esc        exit
+
+Tickets panel:
+c              classify selected ticket
+p              preview prompt
+x              create planned execution
 ```
 
 ## Configure Branch Policy
@@ -180,11 +200,21 @@ pnpm api
 
 The API listens on port `4317` by default.
 
+To make API and Web operate on a separate target repository such as the sandbox:
+
+```powershell
+$env:OPENTOP_REPO_PATH = "C:\Users\ronny\Coding\OpenTop\OpenTop-Sandbox"
+pnpm api
+pnpm web
+```
+
 ## Start the Web UI
 
 ```bash
 pnpm web
 ```
+
+The Web app is the primary OpenTop interface for daily use. Prefer the Web board, ticket detail pages, execution detail, and settings for normal operation; keep the CLI for setup, automation, and quick power-user workflows.
 
 ## Configuration
 

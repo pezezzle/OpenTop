@@ -23,6 +23,12 @@ importers:
       '@opentop/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@opentop/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@opentop/git':
+        specifier: workspace:*
+        version: link:../../packages/git
       fastify:
         specifier: ^5.1.0
         version: 5.8.5

@@ -63,7 +63,7 @@ The dependency direction should stay simple: apps depend on core services, and c
 
 ### `apps/cli`
 
-The CLI is a terminal entry point.
+The CLI is a terminal entry point for setup, automation, power-user workflows, and local operator commands.
 
 It may:
 
@@ -71,6 +71,7 @@ It may:
 - Load configuration.
 - Call core application services.
 - Print human-readable output or JSON.
+- Offer optional operator-only dashboard or shell modes.
 
 It must not:
 
@@ -78,6 +79,8 @@ It must not:
 - Build prompts directly.
 - Decide routing or approval rules directly.
 - Talk to SQLite, GitHub, or providers without going through the intended service boundary.
+
+The CLI is not the primary product surface. It exists for setup, scripting, quick inspection, and direct operator control.
 
 ### `apps/api`
 
@@ -94,15 +97,18 @@ It must not own domain decisions. The same operation should behave the same whet
 
 ### `apps/web`
 
-The Web app is the visual control plane.
+The Web app is the primary visual control plane.
 
 It may:
 
 - Show tickets, classifications, approvals, executions, logs, and pull request links.
 - Trigger API calls.
 - Let humans approve or override suggested routes.
+- Own the main daily interface for board, detail pages, settings, and review flows.
 
 It must not duplicate classifier, router, or execution behavior.
+
+OpenTop should prefer new user-facing interface work in the Web app first. CLI dashboards or TUIs are optional secondary surfaces.
 
 ## Core Package
 
@@ -280,23 +286,31 @@ load config
 
 No direct pushes to the default branch are part of the MVP.
 
-## MVP Build Order
+## MVP Implementation Status
 
-The next implementation steps should follow this order:
+Completed foundation:
 
-1. Add `packages/db`.
-2. Define repository interfaces in `packages/core`.
-3. Implement SQLite/Drizzle repositories in `packages/db`.
-4. Add `TicketService` and `ClassificationService`.
-5. Make `classify <id>` load a stored ticket.
-6. Add `PromptBuilder`.
-7. Make `run <id>` produce a prompt and execution plan.
-8. Add real Git branch creation.
-9. Execute provider adapters.
-10. Run configured checks.
-11. Create draft pull requests.
+- Monorepo with CLI, API, Web, and shared packages.
+- `packages/db` with local SQLite persistence.
+- Repository interfaces in `packages/core`.
+- SQLite ticket and execution repositories.
+- Stored local tickets.
+- `classify <id>` backed by stored tickets.
+- PromptBuilder based on ticket, classification, profile, rules, and project context.
+- Stored planned executions.
+- Branch policy resolution.
+- Web board, ticket detail, execution detail, and settings.
 
-This order keeps the architecture clean while still moving toward a usable local MVP.
+Next implementation steps:
+
+1. Add real Git branch creation from branch policy decisions.
+2. Execute provider adapters.
+3. Run configured checks.
+4. Collect changed files and logs.
+5. Create draft pull requests.
+6. Add approval gates in the Web UI.
+
+The implementation order keeps the architecture clean while moving toward a usable local MVP.
 
 ## MVP Constraints
 
@@ -310,3 +324,19 @@ Version `0.1` intentionally avoids:
 - Perfect sandboxing.
 
 The first product must prove the local control-plane workflow before expanding outward.
+
+## UI Strategy
+
+OpenTop uses this product split:
+
+```text
+CLI = setup, automation, power-user operations
+API = application boundary for Web and integrations
+Web = primary user interface
+```
+
+That means:
+
+- New ticket, execution, log, prompt-preview, approval, and settings flows should land in Web first.
+- CLI dashboards or shell modes may stay available, but they are secondary and should not become the main product surface.
+- API routes should expose the same workflows so Web does not reimplement orchestration logic.

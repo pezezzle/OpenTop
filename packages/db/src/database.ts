@@ -56,8 +56,6 @@ export async function createOpenTopSqliteContext(
     );
   `);
 
-  await persistDatabase(sqlite, filePath);
-
   return {
     database: drizzle(sqlite),
     sqlite,

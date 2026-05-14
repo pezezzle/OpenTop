@@ -4,26 +4,27 @@
 
 - Monorepo foundation with CLI, API, Web, and core packages.
 - Public target architecture document.
+- Documentation structure for architecture, current state, CLI, API, Web, data model, execution flow, and decisions.
 - Manual ticket classification.
-- GitHub issue import package.
 - Rule-based classifier and model routing.
 - Provider adapter interface.
 - Codex CLI and custom shell adapter baseline.
-- Local branch planning.
-- Draft execution board UI.
+- Local ticket persistence.
+- PromptBuilder based on project context and memory.
+- Persistent planned executions.
+- Branch policy resolution.
+- Web board, ticket detail, execution detail, and settings.
+- CLI local linking and dashboard startup command.
 
 ## 0.2
 
-- `packages/db` with SQLite and Drizzle.
-- Core repository interfaces.
-- Ticket, classification, and execution application services.
-- `classify <id>` backed by stored tickets.
-- PromptBuilder based on ticket, classification, profile, rules, and project context.
-- Persistent SQLite storage.
-- Real execution records and logs.
 - Git branch creation from execution plans.
 - Configurable build and test checks.
+- Real provider execution.
+- Real execution logs.
+- Changed file collection.
 - Draft PR creation through GitHub.
+- GitHub issue import.
 
 ## 0.3
 

@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@opentop/core": "workspace:*",
+    "@opentop/db": "workspace:*",
+    "@opentop/git": "workspace:*",
     "fastify": "^5.1.0",
     "zod": "^3.24.1"
   },

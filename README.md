@@ -54,6 +54,20 @@ OpenTop keeps business logic out of `apps/cli`, `apps/api`, and `apps/web`. Thos
 
 See [docs/architecture.md](docs/architecture.md) for the target architecture and MVP build order.
 
+## Documentation
+
+The full documentation index lives in [docs/README.md](docs/README.md).
+
+Start with:
+
+- [Overview](docs/overview.md)
+- [Current State](docs/current-state.md)
+- [CLI](docs/cli.md)
+- [API](docs/api.md)
+- [Web UI](docs/web.md)
+- [Data Model](docs/data-model.md)
+- [Execution Flow](docs/execution-flow.md)
+
 ## Project Context
 
 OpenTop projects can provide execution context through `.opentop/`: project context, rules, memory files, prompt templates, and pull request templates. Public defaults belong in the repository; local overrides and secrets stay ignored.
@@ -93,14 +107,42 @@ opentop --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox status
 
 Use `pnpm web` to start the board on port `3000` and `pnpm api` to start the local API.
 
+To point Web and API at a sandbox or customer repository, set `OPENTOP_REPO_PATH` before starting them:
+
+```powershell
+$env:OPENTOP_REPO_PATH = "C:\Users\ronny\Coding\OpenTop\OpenTop-Sandbox"
+pnpm api
+pnpm web
+```
+
 For an interactive CLI entrypoint:
 
 ```bash
+opentop
 opentop start
+opentop dashboard
+opentop shell
 opentop settings
 ```
 
-`opentop start` opens a simple interactive console for status, tickets, executions, and settings. `opentop settings` opens the settings menu directly.
+`opentop` without a subcommand stays command-oriented and prints help. `opentop start` opens the terminal app. `opentop dashboard` starts the local API and Web UI for the selected repository and opens the browser on `http://localhost:3000`. `opentop shell` keeps the text shell available as a fallback. `opentop settings` opens the settings menu directly.
+
+Dashboard shortcuts:
+
+```text
+Tab / h / l    switch panels
+j / k          move selection
+Enter          primary action
+r              refresh
+q / Esc        exit
+
+Tickets panel:
+c              classify selected ticket
+p              preview prompt
+x              create planned execution
+```
+
+OpenTop treats the Web app as the primary user interface. The CLI remains for setup, automation, and power-user workflows.
 
 ## Branch Policy
 
