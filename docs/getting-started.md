@@ -10,6 +10,7 @@
 ## Install
 
 ```bash
+npm install -g pnpm@9.15.0
 pnpm install
 ```
 
@@ -20,6 +21,8 @@ pnpm build
 ```
 
 ## Target a Repository
+
+OpenTop is the tool in this repository. The repository you want it to orchestrate is the target repository.
 
 OpenTop works against the current working directory by default. Use `--repo` when you want to orchestrate a different repository, such as a sandbox:
 
@@ -108,10 +111,22 @@ pnpm cli:dev -- executions show 1 --json
 
 ## Install a Local `opentop` Command
 
-To expose a real local `opentop` command on your machine:
+To expose a real local `opentop` command on your machine, install or link it from the OpenTop repository that contains the CLI source code.
+
+Windows:
 
 ```bash
 pnpm cli:link
+```
+
+`pnpm cli:link` currently supports Windows only.
+
+macOS / Linux:
+
+```bash
+cd apps/cli
+npm link
+cd ../..
 ```
 
 Then you can call:
@@ -119,6 +134,13 @@ Then you can call:
 ```bash
 opentop --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox status
 opentop --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox tickets list
+```
+
+Or run it directly from inside the target repository:
+
+```bash
+cd /Users/<you>/Coding/OpenTop/OpenTop-Sandbox
+opentop dashboard
 ```
 
 Interactive CLI:

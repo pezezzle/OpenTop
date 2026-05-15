@@ -78,6 +78,7 @@ See [docs/opentop-project-context-and-memory.md](docs/opentop-project-context-an
 ## Quick Start
 
 ```bash
+npm install -g pnpm@9.15.0
 pnpm install
 pnpm build
 pnpm cli:dev -- status
@@ -92,6 +93,10 @@ pnpm cli:dev -- prompt --title "Fix login button" --labels bug
 
 ## Local CLI
 
+OpenTop itself lives in this repository. The repository you want OpenTop to orchestrate is the target repository.
+
+In local development, that target repository is often a separate sandbox such as `OpenTop-Sandbox`.
+
 You can target the current repository or a separate sandbox repository with `--repo`:
 
 ```bash
@@ -99,10 +104,34 @@ pnpm cli:dev -- --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox status
 pnpm cli:dev -- --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox tickets list
 ```
 
-To expose a real local `opentop` command on your machine:
+When you run `opentop` from inside a target repository, OpenTop uses the current working directory as the target by default.
+
+For example, after linking the CLI:
+
+```bash
+cd /Users/<you>/Coding/OpenTop/OpenTop-Sandbox
+opentop dashboard
+```
+
+To expose a real local `opentop` command on your machine, install or link it from the OpenTop repository that contains the CLI source code.
+
+Windows:
 
 ```bash
 pnpm cli:link
+```
+
+macOS / Linux:
+
+```bash
+cd apps/cli
+npm link
+cd ../..
+```
+
+Then you can call:
+
+```bash
 opentop --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox status
 ```
 

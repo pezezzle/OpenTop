@@ -6,10 +6,22 @@ The CLI is not the primary product surface. The Web UI is the main interface for
 
 ## Install Local Command
 
-From the OpenTop repository:
+Install or link the CLI from the OpenTop repository that contains the CLI source code.
+
+Windows:
 
 ```powershell
 pnpm cli:link
+```
+
+`pnpm cli:link` currently supports Windows only.
+
+macOS / Linux:
+
+```bash
+cd apps/cli
+npm link
+cd ../..
 ```
 
 This exposes:
@@ -21,6 +33,8 @@ opentop
 ## Target Repository
 
 OpenTop works against the current directory by default.
+
+OpenTop itself is the tool repository. The target repository is the repository that OpenTop should orchestrate, such as `OpenTop-Sandbox`.
 
 From the sandbox repository:
 
