@@ -16,11 +16,22 @@ Ticket
 
 ## Status
 
-This repository is in the first `0.1` scaffold phase. The current focus is a local CLI, a small API, a lightweight web UI, and reusable packages for routing, providers, Git integration, and GitHub import.
+This repository is now past the initial scaffold stage and operates as a local-first OpenTop alpha.
+
+Today the product already supports:
+
+- local ticket storage and classification
+- prompt, plan, and execution review flows
+- provider routing and runtime inspection
+- `codex-cli` execution as the preferred Codex-subscription path
+- optional GitHub handoff through a draft PR or manual ticket resolution
+- a compact Web UI as the primary daily interface
+
+The current focus is on polishing the local single-user product, tightening GitHub handoff and review flows, and finishing the remaining provider/runtime expansion work.
 
 ## MVP Scope
 
-- Import GitHub Issues and manual tickets.
+- Support manual local tickets today, with GitHub Issue import planned.
 - Classify tickets by risk, complexity, labels, keywords, and affected areas.
 - Suggest an agent profile, model tier, and execution mode.
 - Require approval for risky work.
@@ -42,7 +53,7 @@ packages/
   db/       SQLite and Drizzle persistence adapters
   providers/ Provider adapter contracts and implementations
   git/      Git helper utilities
-  github/   GitHub issue and pull request integration
+  github/   GitHub pull-request integration and handoff helpers
   shared/   Shared constants and primitive types
 
 docs/       Product and architecture documentation

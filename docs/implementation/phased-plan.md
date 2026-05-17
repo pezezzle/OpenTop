@@ -18,7 +18,7 @@ The plan is intentionally phased. Each phase should leave the product in a coher
 
 Goal: OpenTop is provider-neutral and can reason about provider capabilities and authentication safely.
 
-Status: In progress.
+Status: Completed.
 
 Scope:
 
@@ -46,6 +46,16 @@ Exit Criteria:
 - API-key providers can run a basic model request.
 - Codex CLI remains usable through the same provider boundary.
 - OAuth cannot be mistaken for implemented runtime auth.
+
+Completed with:
+
+- provider capability types covering auth method, structured output, local workspace support, and multi-run suitability
+- secret resolver boundary for environment-based API-key providers
+- runtime selection across provider type, connection method, and capability requirements
+- `codex-cli` kept as a first-class `external_cli` provider path inside the shared provider boundary
+- OpenAI-compatible API-key runtime baseline for OpenAI, DeepSeek, and OpenRouter-style providers
+- provider doctor reporting for capabilities, connection state, model-tier routing, readiness, and compatibility warnings
+- explicit connected-but-non-runtime handling for provider paths such as `openai-codex` when auth exists but durable runtime support does not
 
 ## Phase 2: API Provider Review Output
 
@@ -391,12 +401,12 @@ Completed with:
 
 - core pull-request drafting service that validates review approval and check status before PR creation
 - PR body rendering from `.opentop/templates/pull-request.md` with ticket, classification, checks, changed-file, and risk sections
-- GitHub draft-PR creation through the local API using `GITHUB_TOKEN` or `GH_TOKEN`
+- GitHub draft-PR creation through the local API using `GITHUB_TOKEN`, `GH_TOKEN`, or an authenticated local `gh` CLI session
 - automatic branch push to `origin` before draft-PR creation
 - persisted pull-request metadata on executions, including URL, title, body, base/head branch, repository, and draft state
 - API route for creating draft PRs from approved executions
-- Web execution detail panel for creating and opening draft PRs
-- ticket-detail visibility for the latest draft PR link
+- Web execution detail panel for creating, opening, and advancing draft PRs
+- ticket-detail visibility for the latest draft PR link and ticket auto-close after OpenTop-created draft PR handoff
 - core runtime tests for PR rendering and execution metadata updates
 
 ## Phase 11: OAuth And User Secrets
@@ -482,3 +492,16 @@ Completed with:
 ## Suggested Working Order
 
 Phases 1 through 12 now provide the provider boundary, review flows, plan-first behavior, worker orchestration, OAuth-backed hosted providers, and the product hardening needed for broader open-source contribution.
+
+## Current Priorities After Phase 12
+
+The phased foundation is now in place. The most important follow-on work is:
+
+- import real GitHub Issues into the local store
+- deepen GitHub sync so board and ticket states reflect merge and closure signals more directly
+- expand hosted-provider execution beyond review output into safer local patch/application workflows
+- add runtime adapters for additional local-model and hosted providers
+- add an optional AI-assisted classifier pass on top of the deterministic baseline
+- expand worker execution from sequential slices toward parallel orchestration where safe
+- continue Web UX compaction, consistency, and operational clarity
+- keep multi-user, cloud workers, and broader ticket-system imports as later platform work rather than immediate local-alpha requirements

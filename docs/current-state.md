@@ -10,6 +10,7 @@ OpenTop currently has:
 - a local CLI package
 - a local Fastify API
 - a Next.js Web UI
+- a compact app-shell Web layout with persistent navigation for Board, Tickets, Executions, and Settings
 - core domain types and services
 - rule-based ticket classification
 - expanded ticket classification with task categories, detected signals, affected areas, risk/complexity scoring, and provider-aware model routing
@@ -47,6 +48,7 @@ OpenTop currently has:
 - in-repo sandbox example and provider setup recipes
 - local CLI linking through `pnpm cli:link`
 - a local sandbox repository for testing OpenTop against an external target repo
+- a dashboard Web launcher that clears stale `.next` output and starts Next.js with Turbopack to avoid chunk-corruption dev boots
 
 ## Current User Flow
 
@@ -76,6 +78,7 @@ The Web UI now shows the same stored data:
 ```text
 Board
 -> Ticket detail
+-> Tickets list
 -> Prompt preview
 -> Prompt review, history, and diff
 -> Plan review, history, and diff
@@ -83,6 +86,7 @@ Board
 -> Worker plan run controls, integration summary, and per-work-item latest executions
 -> Execution history
 -> Execution detail
+-> Executions list
 -> Settings
 ```
 
@@ -164,8 +168,10 @@ The API listens on port `4317` by default.
 The Web UI currently has:
 
 - `/`: execution board
+- `/tickets`: ticket list
 - `/tickets/[ticketId]`: ticket detail, classification, prompt preview, prompt review status, prompt history, prompt diff, plan review status, plan history, plan diff, worker plan generation/history, work-item inspection, executions, and explicit ticket-resolution controls
 - `/tickets/[ticketId]`: classification now includes task type, detected signals, provider/model suggestion, reasoning, and prompt approval requirement
+- `/executions`: execution list
 - `/executions/[executionId]`: execution detail, prompt snapshot, structured review output, checks, execution logs, changed files, diff review, risk summary, draft/ready/merged PR state, review decision actions, and draft PR creation/output
 - `/settings`: branch policy settings plus provider health, GitHub handoff status, compatibility warnings, and OAuth connection status
 - `/settings`: context profile mode, active profile IDs, and prompt budget settings
@@ -207,3 +213,5 @@ OAuth credentials now stay outside the repository in `~/.opentop/auth/`. OpenRou
 The local database now carries a tracked schema version in `opentop_meta`, and package-level tests cover the core orchestration path plus provider, git, and database hardening checks.
 
 OpenAI Codex OAuth can now be connected and inspected, but OpenTop intentionally does not treat it as a supported execution runtime. For ChatGPT/Codex subscription access, prefer `codex-cli`. For direct OpenAI API execution, prefer `openai-api` with an API key.
+
+The dashboard launcher now boots the Web app through the shared `pnpm web` entrypoint, clears `apps/web/.next`, and starts Next.js with Turbopack. That keeps the local board from getting stuck in the stale chunk/runtime errors seen in the older dev startup path.
