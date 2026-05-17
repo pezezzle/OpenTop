@@ -46,6 +46,12 @@ Tickets are stored in:
 
 Classification uses `.opentop/opentop.yml` routing rules.
 
+Current implementation note:
+
+- this is still deterministic and heuristic today
+- task type, risk, complexity, affected areas, and routing are derived from labels, keywords, and configured routing rules
+- the implementation lives in `packages/core/src/classifier.ts`
+
 It determines:
 
 - risk
@@ -91,6 +97,8 @@ It produces a controlled prompt with:
 - required response format
 
 It also produces a prompt-review snapshot that can be versioned and approved before any provider run begins.
+
+Today this prompt is still built directly from ticket content plus OpenTop rules and context. OpenTop does not yet run a separate AI-assisted prompt-refinement pass before prompt review.
 
 ## Step 4.5: Prompt Review Gate
 
@@ -245,3 +253,4 @@ Still missing:
 - log streaming
 - safe parallel execution across worker plans
 - deeper GitHub review/comment synchronization beyond PR state and ready-for-review transitions
+- AI-assisted classification and prompt refinement before controlled prompt assembly

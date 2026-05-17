@@ -28,6 +28,7 @@ OpenTop currently has:
 - live GitHub pull-request state reads for stored executions
 - draft-to-ready-for-review transitions from the execution detail page
 - prompt building from ticket, config, project context, memory, and prompt templates
+- deterministic prompt assembly from ticket, config, project context, memory, and prompt templates
 - local SQLite persistence through `sql.js` and Drizzle
 - stored tickets
 - stored executions with prompt snapshots, provider logs, and changed files
@@ -187,6 +188,7 @@ OpenTop does not yet:
 - apply API-provider output as local workspace patches
 - runtime adapters for local-model providers such as Ollama
 - AI-assisted classifier pass on top of the deterministic routing baseline
+- AI-assisted prompt refinement between ticket input and controlled prompt assembly
 - parallel worker execution across multiple work items
 - support multi-user operation
 - support cloud workers

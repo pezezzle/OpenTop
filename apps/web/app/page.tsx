@@ -58,8 +58,9 @@ export default async function Home() {
             </p>
           </div>
           <div className="topbar-meta">
+            <span>Current branch: {status.currentBranch}</span>
+            <span>Workspace: {status.isClean ? "clean" : "dirty"}</span>
             <span>Default branch: {status.defaultBranch}</span>
-            <span>Stored executions: {status.storedExecutions}</span>
           </div>
         </header>
 
@@ -157,7 +158,10 @@ export default async function Home() {
 
           <article className="panel">
             <h2>Recent Executions</h2>
-            <p className="subline">Use this as the quickest way back into review, failures, or follow-up work.</p>
+            <p className="subline">
+              {status.storedExecutions} stored execution{status.storedExecutions === 1 ? "" : "s"} in local history.
+              Use this as the quickest way back into review, failures, or follow-up work.
+            </p>
             <p className="inline-actions">
               <Link href="/executions">Open all executions</Link>
             </p>
@@ -202,9 +206,12 @@ export default async function Home() {
             <p className="summary-copy">Ticket and execution state is stored inside this repository.</p>
           </article>
           <article className="summary-card">
-            <span className="summary-label">Current Branch</span>
+            <span className="summary-label">Branch Context</span>
             <strong className="summary-value summary-value-tight">{status.currentBranch}</strong>
-            <p className="summary-copy">Default branch: {status.defaultBranch}</p>
+            <p className="summary-copy">
+              Working on {status.currentBranch === status.defaultBranch ? "the default branch" : "a ticket branch"}.
+              Base branch: {status.defaultBranch}
+            </p>
           </article>
           <article className="summary-card">
             <span className="summary-label">Workspace State</span>

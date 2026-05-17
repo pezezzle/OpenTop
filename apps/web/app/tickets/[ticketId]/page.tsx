@@ -600,6 +600,115 @@ export default async function TicketDetailPage({
                 </p>
               </article>
             </section>
+
+            <article className="panel panel-full">
+              <div className="panel-heading">
+                <div>
+                  <h2>Prompt Review</h2>
+                  <p className="subline">
+                    Version v{currentPromptReview.version} · review status {formatReviewStatus(currentPromptReview.status)}
+                  </p>
+                </div>
+                <span className={`status-pill status-pill-${reviewTone(currentPromptReview.status)}`}>
+                  {formatReviewStatus(currentPromptReview.status)}
+                </span>
+              </div>
+
+              <dl className="stacked-meta">
+                <div>
+                  <dt>Updated</dt>
+                  <dd>{new Date(currentPromptReview.updatedAt).toLocaleString()}</dd>
+                </div>
+                <div>
+                  <dt>Reviewer Comment</dt>
+                  <dd>{currentPromptReview.reviewerComment || "none"}</dd>
+                </div>
+              </dl>
+
+              <div className="review-action-grid">
+                {currentPromptReview.status !== "approved" ? (
+                  <form action={approvePromptReviewAction} className="review-action-card">
+                    <input name="ticketId" type="hidden" value={detail.ticket.id} />
+                    <input name="promptReviewId" type="hidden" value={currentPromptReview.id} />
+                    <h3>Approve Prompt</h3>
+                    <p className="subline">Confirm that this prompt is ready to use for the next execution.</p>
+                    <textarea name="reviewerComment" rows={3} placeholder="Optional note about why this version is approved." />
+                    <button type="submit">Approve prompt</button>
+                  </form>
+                ) : (
+                  <div className="review-action-card review-action-card-static">
+                    <h3>Approved</h3>
+                    <p className="subline">This prompt is already approved and can be used for execution.</p>
+                  </div>
+                )}
+
+                <form action={rejectPromptReviewAction} className="review-action-card">
+                  <input name="ticketId" type="hidden" value={detail.ticket.id} />
+                  <input name="promptReviewId" type="hidden" value={currentPromptReview.id} />
+                  <h3>Reject Prompt</h3>
+                  <p className="subline">Block this version and explain what needs to change in the next prompt.</p>
+                  <textarea name="reviewerComment" rows={3} placeholder="Optional note about what should change before the next run." />
+                  <button type="submit">Reject prompt</button>
+                </form>
+
+                <form action={regeneratePromptReviewAction} className="review-action-card">
+                  <input name="ticketId" type="hidden" value={detail.ticket.id} />
+                  <h3>Regenerate Prompt</h3>
+                  <p className="subline">Create a new prompt version and keep the review history intact.</p>
+                  <textarea name="reviewerComment" rows={3} placeholder="Optional note to remember why a new version was generated." />
+                  <button type="submit">Regenerate prompt</button>
+                </form>
+              </div>
+            </article>
+
+            <article className="panel panel-full">
+              <h2>Prompt Details</h2>
+              <p className="subline">The live ticket view stays compact; open these only when you need the raw prompt or history.</p>
+              <details className="disclosure">
+                <summary>Prompt preview</summary>
+                <div className="disclosure-body">
+                  <p className="subline">Sources: {currentPromptReview.sources.join(", ")}</p>
+                  <pre className="prompt-preview">{detail.prompt.prompt}</pre>
+                </div>
+              </details>
+              <details className="disclosure">
+                <summary>
+                  Prompt diff
+                  {previousPromptReview
+                    ? ` · v${currentPromptReview.version} vs v${previousPromptReview.version}`
+                    : ` · first version`}
+                </summary>
+                <div className="disclosure-body">
+                  <div className="prompt-diff">
+                    {promptDiff.map((line) => (
+                      <div className={`prompt-diff-line prompt-diff-line-${line.kind}`} key={line.key}>
+                        <span className="prompt-diff-marker">{line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " "}</span>
+                        <code>{line.content || " "}</code>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </details>
+              <details className="disclosure">
+                <summary>Prompt history · {detail.promptReviews.length} version(s)</summary>
+                <div className="disclosure-body">
+                  <div className="list-grid prompt-history-grid">
+                    {detail.promptReviews.map((promptReview) => (
+                      <article className="prompt-history-card" key={promptReview.id}>
+                        <div className="panel-heading">
+                          <strong>Version v{promptReview.version}</strong>
+                          <span className={`status-pill status-pill-${reviewTone(promptReview.status)}`}>
+                            {formatReviewStatus(promptReview.status)}
+                          </span>
+                        </div>
+                        <p className="subline">Updated {new Date(promptReview.updatedAt).toLocaleString()}</p>
+                        <p className="prompt-history-comment">{promptReview.reviewerComment || "No reviewer comment stored."}</p>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              </details>
+            </article>
           </div>
 
           <aside className="ticket-side-column">
@@ -742,120 +851,74 @@ export default async function TicketDetailPage({
                 </div>
               </details>
             </article>
+
+            <article className="panel">
+              <h2>Prompt Context</h2>
+              <p className="subline">Only the high-level context stays visible here. The detailed prompt breakdown opens on demand.</p>
+              <dl className="stacked-meta">
+                <div>
+                  <dt>Profile Mode</dt>
+                  <dd>{detail.prompt.contextSummary.profileMode}</dd>
+                </div>
+                <div>
+                  <dt>Active Profiles</dt>
+                  <dd>
+                    {detail.prompt.contextSummary.activeProfiles.length === 0
+                      ? "none"
+                      : detail.prompt.contextSummary.activeProfiles
+                          .map((profile) => `${profile.displayName} (${profile.type})`)
+                          .join(", ")}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Budget</dt>
+                  <dd>
+                    {detail.prompt.contextSummary.budget.usedProfileSections}/
+                    {detail.prompt.contextSummary.budget.maxProfileSections} sections,{" "}
+                    {detail.prompt.contextSummary.budget.usedProfileWords}/
+                    {detail.prompt.contextSummary.budget.maxPromptProfileWords} words
+                  </dd>
+                </div>
+              </dl>
+
+              <details className="disclosure">
+                <summary>Show context breakdown</summary>
+                <div className="disclosure-body">
+                  <div className="review-grid">
+                    <section className="review-section">
+                      <h3>Influences</h3>
+                      <ul className="stack-list">
+                        {detail.prompt.contextSummary.influences.map((influence) => (
+                          <li key={influence}>{influence}</li>
+                        ))}
+                      </ul>
+                    </section>
+
+                    <section className="review-section">
+                      <h3>Included Sections</h3>
+                      <ul className="stack-list">
+                        {detail.prompt.contextSummary.includedSections.length === 0 ? (
+                          <li>none</li>
+                        ) : (
+                          detail.prompt.contextSummary.includedSections.map((section) => <li key={section}>{section}</li>)
+                        )}
+                      </ul>
+                    </section>
+                  </div>
+                </div>
+              </details>
+
+              <details className="disclosure">
+                <summary>Show prompt sources</summary>
+                <div className="disclosure-body">
+                  <p className="subline">{detail.prompt.sources.join(", ")}</p>
+                </div>
+              </details>
+            </article>
           </aside>
         </section>
 
         <section className="detail-grid">
-
-          <article className="panel panel-wide">
-            <div className="panel-heading">
-              <div>
-                <h2>Prompt Review</h2>
-                <p className="subline">
-                  Version v{currentPromptReview.version} · review status {formatReviewStatus(currentPromptReview.status)}
-                </p>
-              </div>
-              <span className={`status-pill status-pill-${reviewTone(currentPromptReview.status)}`}>
-                {formatReviewStatus(currentPromptReview.status)}
-              </span>
-            </div>
-
-            <dl className="stacked-meta">
-              <div>
-                <dt>Updated</dt>
-                <dd>{new Date(currentPromptReview.updatedAt).toLocaleString()}</dd>
-              </div>
-              <div>
-                <dt>Reviewer Comment</dt>
-                <dd>{currentPromptReview.reviewerComment || "none"}</dd>
-              </div>
-            </dl>
-
-            <div className="review-action-grid">
-              {currentPromptReview.status !== "approved" ? (
-                <form action={approvePromptReviewAction} className="review-action-card">
-                  <input name="ticketId" type="hidden" value={detail.ticket.id} />
-                  <input name="promptReviewId" type="hidden" value={currentPromptReview.id} />
-                  <h3>Approve Prompt</h3>
-                  <p className="subline">Confirm that this prompt is ready to use for the next execution.</p>
-                  <textarea name="reviewerComment" rows={3} placeholder="Optional note about why this version is approved." />
-                  <button type="submit">Approve prompt</button>
-                </form>
-              ) : (
-                <div className="review-action-card review-action-card-static">
-                  <h3>Approved</h3>
-                  <p className="subline">This prompt is already approved and can be used for execution.</p>
-                </div>
-              )}
-
-              <form action={rejectPromptReviewAction} className="review-action-card">
-                <input name="ticketId" type="hidden" value={detail.ticket.id} />
-                <input name="promptReviewId" type="hidden" value={currentPromptReview.id} />
-                <h3>Reject Prompt</h3>
-                <p className="subline">Block this version and explain what needs to change in the next prompt.</p>
-                <textarea name="reviewerComment" rows={3} placeholder="Optional note about what should change before the next run." />
-                <button type="submit">Reject prompt</button>
-              </form>
-
-              <form action={regeneratePromptReviewAction} className="review-action-card">
-                <input name="ticketId" type="hidden" value={detail.ticket.id} />
-                <h3>Regenerate Prompt</h3>
-                <p className="subline">Create a new prompt version and keep the review history intact.</p>
-                <textarea name="reviewerComment" rows={3} placeholder="Optional note to remember why a new version was generated." />
-                <button type="submit">Regenerate prompt</button>
-              </form>
-            </div>
-          </article>
-
-          <article className="panel panel-wide">
-            <h2>Prompt Details</h2>
-            <p className="subline">The live ticket view stays compact; open these only when you need the raw prompt or history.</p>
-            <details className="disclosure">
-              <summary>Prompt preview</summary>
-              <div className="disclosure-body">
-                <p className="subline">Sources: {currentPromptReview.sources.join(", ")}</p>
-                <pre className="prompt-preview">{detail.prompt.prompt}</pre>
-              </div>
-            </details>
-            <details className="disclosure">
-              <summary>
-                Prompt diff
-                {previousPromptReview
-                  ? ` · v${currentPromptReview.version} vs v${previousPromptReview.version}`
-                  : ` · first version`}
-              </summary>
-              <div className="disclosure-body">
-                <div className="prompt-diff">
-                  {promptDiff.map((line) => (
-                    <div className={`prompt-diff-line prompt-diff-line-${line.kind}`} key={line.key}>
-                      <span className="prompt-diff-marker">{line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " "}</span>
-                      <code>{line.content || " "}</code>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </details>
-            <details className="disclosure">
-              <summary>Prompt history · {detail.promptReviews.length} version(s)</summary>
-              <div className="disclosure-body">
-                <div className="list-grid prompt-history-grid">
-                  {detail.promptReviews.map((promptReview) => (
-                    <article className="prompt-history-card" key={promptReview.id}>
-                      <div className="panel-heading">
-                        <strong>Version v{promptReview.version}</strong>
-                        <span className={`status-pill status-pill-${reviewTone(promptReview.status)}`}>
-                          {formatReviewStatus(promptReview.status)}
-                        </span>
-                      </div>
-                      <p className="subline">Updated {new Date(promptReview.updatedAt).toLocaleString()}</p>
-                      <p className="prompt-history-comment">{promptReview.reviewerComment || "No reviewer comment stored."}</p>
-                    </article>
-                  ))}
-                </div>
-              </div>
-            </details>
-          </article>
-
           {usesPlanWorkflow ? (
             <>
               <article className="panel panel-wide">
@@ -1227,65 +1290,7 @@ export default async function TicketDetailPage({
             </>
           ) : null}
 
-          <article className="panel panel-wide">
-            <h2>Prompt Context</h2>
-            <dl className="stacked-meta">
-              <div>
-                <dt>Profile Mode</dt>
-                <dd>{detail.prompt.contextSummary.profileMode}</dd>
-              </div>
-              <div>
-                <dt>Active Profiles</dt>
-                <dd>
-                  {detail.prompt.contextSummary.activeProfiles.length === 0
-                    ? "none"
-                    : detail.prompt.contextSummary.activeProfiles
-                        .map((profile) => `${profile.displayName} (${profile.type})`)
-                        .join(", ")}
-                </dd>
-              </div>
-              <div>
-                <dt>Budget</dt>
-                <dd>
-                  {detail.prompt.contextSummary.budget.usedProfileSections}/
-                  {detail.prompt.contextSummary.budget.maxProfileSections} sections,{" "}
-                  {detail.prompt.contextSummary.budget.usedProfileWords}/
-                  {detail.prompt.contextSummary.budget.maxPromptProfileWords} words
-                </dd>
-              </div>
-            </dl>
-
-            <div className="review-grid">
-              <section className="review-section">
-                <h3>Influences</h3>
-                <ul className="stack-list">
-                  {detail.prompt.contextSummary.influences.map((influence) => (
-                    <li key={influence}>{influence}</li>
-                  ))}
-                </ul>
-              </section>
-
-              <section className="review-section">
-                <h3>Included Sections</h3>
-                <ul className="stack-list">
-                  {detail.prompt.contextSummary.includedSections.length === 0 ? (
-                    <li>none</li>
-                  ) : (
-                    detail.prompt.contextSummary.includedSections.map((section) => <li key={section}>{section}</li>)
-                  )}
-                </ul>
-              </section>
-            </div>
-
-            <details className="disclosure">
-              <summary>Show prompt sources</summary>
-              <div className="disclosure-body">
-                <p className="subline">{detail.prompt.sources.join(", ")}</p>
-              </div>
-            </details>
-          </article>
-
-          <article className="panel panel-wide">
+          <article className="panel panel-full">
             <h2>Executions</h2>
             {detail.executions.length === 0 ? (
               <p className="empty-state">No executions stored for this ticket.</p>
