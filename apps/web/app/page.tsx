@@ -88,56 +88,6 @@ export default async function Home() {
           </article>
         </section>
 
-        <section className="overview-grid">
-          <article className="panel">
-            <h2>Create Ticket</h2>
-            <p className="subline">Start with a short title and one or two concrete sentences about the expected outcome.</p>
-            <form action={createTicketAction} className="stack-form">
-              <label className="field">
-                <span>Title</span>
-                <input name="title" placeholder="Provider smoke test" required type="text" />
-              </label>
-              <label className="field">
-                <span>Description</span>
-                <textarea name="description" placeholder="Describe the ticket in one or two concrete sentences." rows={4} />
-              </label>
-              <label className="field">
-                <span>Labels</span>
-                <input name="labels" placeholder="bug, ui, auth" type="text" />
-              </label>
-              <button type="submit">Create ticket</button>
-            </form>
-          </article>
-
-          <article className="panel">
-            <h2>Recent Executions</h2>
-            <p className="subline">Use this as the quickest way back into review, failures, or follow-up work.</p>
-            <p className="inline-actions">
-              <Link href="/executions">Open all executions</Link>
-            </p>
-            {executionResponse.executions.length === 0 ? (
-              <p className="empty-state">No executions stored yet.</p>
-            ) : (
-              <div className="list-grid">
-                {executionResponse.executions.slice(0, 4).map((execution) => (
-                  <Link className="execution-card" href={`/executions/${execution.id}`} key={execution.id}>
-                    <strong>Execution #{execution.id}</strong>
-                    <span>{formatExecutionStatus(execution.status)}</span>
-                    <small>
-                      Ticket #{execution.ticketId} ·{" "}
-                      {execution.artifactKind === "review_output"
-                        ? execution.outputKind
-                          ? `review output · ${execution.outputKind}`
-                          : "review output"
-                        : execution.branchName}
-                    </small>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </article>
-        </section>
-
         <section className="board" aria-label="Ticket execution board">
           {lanes.map((lane) => (
             <article className="lane" key={lane}>
@@ -184,11 +134,72 @@ export default async function Home() {
           ))}
         </section>
 
-        <section className="summary-strip" aria-label="Workspace health">
+        <section className="overview-grid">
+          <article className="panel">
+            <h2>Create Ticket</h2>
+            <p className="subline">Start with a short title and one or two concrete sentences about the expected outcome.</p>
+            <form action={createTicketAction} className="stack-form compact-ticket-form">
+              <label className="field">
+                <span>Title</span>
+                <input name="title" placeholder="Provider smoke test" required type="text" />
+              </label>
+              <label className="field">
+                <span>Description</span>
+                <textarea name="description" placeholder="Describe the ticket in one or two concrete sentences." rows={3} />
+              </label>
+              <label className="field">
+                <span>Labels</span>
+                <input name="labels" placeholder="bug, ui, auth" type="text" />
+              </label>
+              <button type="submit">Create ticket</button>
+            </form>
+          </article>
+
+          <article className="panel">
+            <h2>Recent Executions</h2>
+            <p className="subline">Use this as the quickest way back into review, failures, or follow-up work.</p>
+            <p className="inline-actions">
+              <Link href="/executions">Open all executions</Link>
+            </p>
+            {executionResponse.executions.length === 0 ? (
+              <p className="empty-state">No executions stored yet.</p>
+            ) : (
+              <div className="resource-list">
+                {executionResponse.executions.slice(0, 4).map((execution) => (
+                  <Link className="resource-row" href={`/executions/${execution.id}`} key={execution.id}>
+                    <div className="resource-main">
+                      <strong>Execution #{execution.id}</strong>
+                      <p>
+                        Ticket #{execution.ticketId} ·{" "}
+                        {execution.artifactKind === "review_output"
+                          ? execution.outputKind
+                            ? `review output · ${execution.outputKind}`
+                            : "review output"
+                          : execution.branchName}
+                      </p>
+                    </div>
+                    <dl className="resource-meta">
+                      <div>
+                        <dt>Status</dt>
+                        <dd>{formatExecutionStatus(execution.status)}</dd>
+                      </div>
+                      <div>
+                        <dt>Review</dt>
+                        <dd>{execution.reviewStatus.replaceAll("_", " ")}</dd>
+                      </div>
+                    </dl>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </article>
+        </section>
+
+        <section className="summary-strip summary-strip-compact" aria-label="Workspace health">
           <article className="summary-card">
             <span className="summary-label">Repository</span>
             <strong className="summary-value summary-value-tight">{status.project}</strong>
-            <p className="summary-copy">{status.repository}</p>
+            <p className="summary-copy">Ticket and execution state is stored inside this repository.</p>
           </article>
           <article className="summary-card">
             <span className="summary-label">Current Branch</span>

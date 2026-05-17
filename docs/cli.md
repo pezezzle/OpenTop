@@ -190,6 +190,9 @@ opentop config set execution.defaultBranchPolicy reuse-current --scope user
 
 `opentop dashboard` is the Web product entry point.
 
+When it launches the Web app, OpenTop now uses the shared `pnpm web` entrypoint, clears `apps/web/.next`, and starts
+Next.js with Turbopack so the dashboard is less likely to get stuck in stale chunk/runtime states.
+
 `opentop start` is the terminal app.
 
 `opentop` without a subcommand stays command-oriented and prints help.

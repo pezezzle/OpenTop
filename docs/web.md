@@ -21,6 +21,10 @@ This starts API, starts Web, and opens:
 http://127.0.0.1:3000
 ```
 
+The dashboard launcher starts the Web app through the shared `pnpm web` entrypoint, clears the local `apps/web/.next`
+cache before boot, and runs Next.js with Turbopack. That is intentional: it avoids the stale chunk/runtime errors that
+showed up in the older Webpack-based dev startup path.
+
 For development, API and Web can be started separately:
 
 ```powershell

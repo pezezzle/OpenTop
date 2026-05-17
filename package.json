@@ -17,7 +17,7 @@
     "verify": "pnpm typecheck && pnpm test",
     "test": "turbo test",
     "typecheck": "turbo typecheck",
-    "web": "pnpm --filter @opentop/web exec next dev --port 3000"
+    "web": "node scripts/start-web-dev.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

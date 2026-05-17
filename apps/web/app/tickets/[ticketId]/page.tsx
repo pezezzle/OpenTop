@@ -324,6 +324,10 @@ function sentenceCase(value: string): string {
   return value.replaceAll("_", " ");
 }
 
+function titleCase(value: string): string {
+  return sentenceCase(value).replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function formatResolutionType(value: "done" | "manual_pr" | "no_pr" | undefined): string {
   switch (value) {
     case "manual_pr":
@@ -404,7 +408,7 @@ export default async function TicketDetailPage({
             <p className="eyebrow">Ticket Detail</p>
             <h1>{detail.ticket.title}</h1>
             <p className="subline">
-              Ticket #{detail.ticket.id} · {detail.ticket.source} · profile {detail.executionPlan.profile.id} · next mode{" "}
+              Ticket #{detail.ticket.id} · {titleCase(detail.ticket.workflowStage)} · next step{" "}
               {detail.executionPlan.profile.mode.replaceAll("_", " ")}
             </p>
           </div>
@@ -546,234 +550,202 @@ export default async function TicketDetailPage({
           </section>
         ) : null}
 
-        <section className="workflow-summary">
-          <article className={`action-banner action-banner-${actionCenter.tone}`}>
-            <p className="action-banner-label">Current Focus</p>
-            <h2>{actionCenter.title}</h2>
-            <p>{actionCenter.body}</p>
-          </article>
+        <section className="ticket-top-grid">
+          <div className="ticket-main-column">
+            <article className={`action-banner action-banner-${actionCenter.tone}`}>
+              <p className="action-banner-label">Current Focus</p>
+              <h2>{actionCenter.title}</h2>
+              <p>{actionCenter.body}</p>
+            </article>
 
-          <article className="flow-card">
-            <div className="panel-heading">
-              <div>
-                <h2>Workflow</h2>
-                <p className="subline">The ticket moves through review gates only when the current step is complete.</p>
-              </div>
-            </div>
-            <div className="flow-steps">
-              {ticketFlow.map((step) => (
-                <div className={`flow-step flow-step-${step.state}`} key={step.label}>
-                  <span>{step.label}</span>
-                  <strong>{step.state === "done" ? "Done" : step.state === "current" ? "Now" : "Later"}</strong>
+            <article className="flow-card">
+              <div className="panel-heading">
+                <div>
+                  <h2>Workflow</h2>
+                  <p className="subline">The ticket moves through review gates only when the current step is complete.</p>
                 </div>
-              ))}
-            </div>
-          </article>
-        </section>
+              </div>
+              <div className="flow-steps">
+                {ticketFlow.map((step) => (
+                  <div className={`flow-step flow-step-${step.state}`} key={step.label}>
+                    <span>{step.label}</span>
+                    <strong>{step.state === "done" ? "Done" : step.state === "current" ? "Now" : "Later"}</strong>
+                  </div>
+                ))}
+              </div>
+            </article>
 
-        <section className="summary-strip" aria-label="Ticket summary">
-          <article className="summary-card">
-            <span className="summary-label">Task Type</span>
-            <strong className="summary-value">{detail.classification.taskType}</strong>
-            <p className="summary-copy">
-              Risk {detail.classification.risk} · complexity {detail.classification.complexity}
-            </p>
-          </article>
-          <article className="summary-card">
-            <span className="summary-label">Routing</span>
-            <strong className="summary-value">{detail.executionPlan.profile.id}</strong>
-            <p className="summary-copy">
-              {detail.executionPlan.providerId}/{detail.executionPlan.modelId}
-            </p>
-          </article>
-          <article className="summary-card">
-            <span className="summary-label">Latest Run</span>
-            <strong className="summary-value">
-              {latestExecution ? formatExecutionStatus(latestExecution.status) : "none"}
-            </strong>
-            <p className="summary-copy">
-              {latestExecution ? `Review ${latestExecution.reviewStatus.replace("_", " ")}` : "No executions stored yet."}
-            </p>
-          </article>
+            <section className="summary-strip summary-strip-compact" aria-label="Ticket summary">
+              <article className="summary-card">
+                <span className="summary-label">Work Type</span>
+                <strong className="summary-value summary-value-tight">{titleCase(detail.classification.taskType)}</strong>
+                <p className="summary-copy">
+                  {titleCase(detail.classification.risk)} risk · {titleCase(detail.classification.complexity)} complexity
+                </p>
+              </article>
+              <article className="summary-card">
+                <span className="summary-label">Run Plan</span>
+                <strong className="summary-value summary-value-tight">{titleCase(detail.executionPlan.profile.id)}</strong>
+                <p className="summary-copy">
+                  {detail.executionPlan.providerId} · {detail.executionPlan.modelId}
+                </p>
+              </article>
+              <article className="summary-card">
+                <span className="summary-label">Latest Activity</span>
+                <strong className="summary-value summary-value-tight">
+                  {latestExecution ? formatExecutionStatus(latestExecution.status) : "none"}
+                </strong>
+                <p className="summary-copy">
+                  {latestExecution ? `Review ${latestExecution.reviewStatus.replace("_", " ")}` : "No executions stored yet."}
+                </p>
+              </article>
+            </section>
+          </div>
+
+          <aside className="ticket-side-column">
+            <article className="panel">
+              <h2>Ticket</h2>
+              <p>{detail.ticket.description || "No description provided."}</p>
+              <dl className="stacked-meta">
+                <div>
+                  <dt>Labels</dt>
+                  <dd>{detail.ticket.labels.length > 0 ? detail.ticket.labels.join(", ") : "none"}</dd>
+                </div>
+                <div>
+                  <dt>Workflow Stage</dt>
+                  <dd>{detail.ticket.workflowStage}</dd>
+                </div>
+                <div>
+                  <dt>Ticket Status</dt>
+                  <dd>{ticketClosed ? "done" : detail.ticket.status}</dd>
+                </div>
+                <div>
+                  <dt>Branch</dt>
+                  <dd>{detail.executionPlan.branchName}</dd>
+                </div>
+                <div>
+                  <dt>Prompt Approval</dt>
+                  <dd>{detail.classification.approvalRequired ? "required" : "optional"}</dd>
+                </div>
+                <div>
+                  <dt>Plan Workflow</dt>
+                  <dd>{usesPlanWorkflow ? "enabled" : "not required"}</dd>
+                </div>
+                {latestExecution?.pullRequest ? (
+                  <div>
+                    <dt>GitHub PR</dt>
+                    <dd>
+                      <a href={latestExecution.pullRequest.url} rel="noreferrer" target="_blank">
+                        #{latestExecution.pullRequest.number ?? "draft"}
+                      </a>
+                    </dd>
+                  </div>
+                ) : null}
+                {latestPullRequestStatus ? (
+                  <div>
+                    <dt>PR State</dt>
+                    <dd>{formatPullRequestState(latestPullRequestStatus)}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            </article>
+
+            <article className="panel">
+              <h2>Resolution</h2>
+              {ticketClosed ? (
+                <div className="stack-actions">
+                  <p className="subline">
+                    Closed as{" "}
+                    <strong>
+                      {detail.ticket.resolutionType
+                        ? formatResolutionType(detail.ticket.resolutionType)
+                        : "PR created in OpenTop"}
+                    </strong>
+                    .
+                  </p>
+                  {detail.ticket.resolutionNote ? (
+                    <p className="subline">{detail.ticket.resolutionNote}</p>
+                  ) : latestExecution?.pullRequest ? (
+                    <p className="subline">
+                      GitHub already has a pull request for this ticket. Reopen it only when you intentionally want follow-up work.
+                    </p>
+                  ) : null}
+                  {detail.ticket.resolvedAt ? (
+                    <p className="subline">Resolved {new Date(detail.ticket.resolvedAt).toLocaleString()}</p>
+                  ) : null}
+                  <form action={reopenTicketAction}>
+                    <input name="ticketId" type="hidden" value={detail.ticket.id} />
+                    <button type="submit">Reopen ticket</button>
+                  </form>
+                </div>
+              ) : (
+                <form action={resolveTicketAction} className="stack-form">
+                  <input name="ticketId" type="hidden" value={detail.ticket.id} />
+                  <label className="field">
+                    <span>Close as</span>
+                    <select defaultValue="manual_pr" name="resolutionType">
+                      <option value="manual_pr">Done, PR handled manually</option>
+                      <option value="no_pr">Done without PR</option>
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Note</span>
+                    <textarea
+                      name="resolutionNote"
+                      placeholder="Optional note for the team, for example where the manual PR will happen."
+                      rows={3}
+                    />
+                  </label>
+                  <button type="submit">Mark ticket done</button>
+                </form>
+              )}
+            </article>
+
+            <article className="panel">
+              <h2>Run Plan</h2>
+              <p className="subline">
+                OpenTop currently wants to handle this as {detail.classification.taskType} work with a{" "}
+                {detail.classification.risk}-risk, {detail.classification.complexity}-complexity path.
+              </p>
+              <dl className="stacked-meta">
+                <div>
+                  <dt>Profile</dt>
+                  <dd>{titleCase(detail.executionPlan.profile.id)}</dd>
+                </div>
+                <div>
+                  <dt>Next Mode</dt>
+                  <dd>{sentenceCase(detail.classification.suggestedMode)}</dd>
+                </div>
+                <div>
+                  <dt>Provider</dt>
+                  <dd>{detail.classification.suggestedProviderId}</dd>
+                </div>
+                <div>
+                  <dt>Model</dt>
+                  <dd>{detail.classification.suggestedModel}</dd>
+                </div>
+                <div>
+                  <dt>Expected Areas</dt>
+                  <dd>{detail.classification.affectedAreas.map((area) => titleCase(area)).join(", ")}</dd>
+                </div>
+              </dl>
+              <details className="disclosure">
+                <summary>Why OpenTop chose this route</summary>
+                <div className="disclosure-body">
+                  <p className="subline">{detail.classification.reason}</p>
+                  <dl className="stacked-meta">
+                    <div>
+                      <dt>Routing Signals</dt>
+                      <dd>{detail.classification.detectedSignals.join(", ") || "none"}</dd>
+                    </div>
+                  </dl>
+                </div>
+              </details>
+            </article>
+          </aside>
         </section>
 
         <section className="detail-grid">
-          <article className="panel">
-            <h2>Ticket</h2>
-            <p>{detail.ticket.description || "No description provided."}</p>
-            <dl className="stacked-meta">
-              <div>
-                <dt>Labels</dt>
-                <dd>{detail.ticket.labels.length > 0 ? detail.ticket.labels.join(", ") : "none"}</dd>
-              </div>
-              <div>
-                <dt>Workflow Stage</dt>
-                <dd>{detail.ticket.workflowStage}</dd>
-              </div>
-              <div>
-                <dt>Ticket Status</dt>
-                <dd>{ticketClosed ? "done" : detail.ticket.status}</dd>
-              </div>
-              <div>
-                <dt>Branch</dt>
-                <dd>{detail.executionPlan.branchName}</dd>
-              </div>
-              <div>
-                <dt>Resolution</dt>
-                <dd>
-                  {detail.ticket.resolutionType
-                    ? formatResolutionType(detail.ticket.resolutionType)
-                    : latestExecution?.pullRequest
-                      ? "PR created in OpenTop"
-                      : "Not resolved"}
-                </dd>
-              </div>
-              {detail.ticket.resolutionNote ? (
-                <div>
-                  <dt>Resolution Note</dt>
-                  <dd>{detail.ticket.resolutionNote}</dd>
-                </div>
-              ) : null}
-              {detail.ticket.resolvedAt ? (
-                <div>
-                  <dt>Resolved</dt>
-                  <dd>{new Date(detail.ticket.resolvedAt).toLocaleString()}</dd>
-                </div>
-              ) : null}
-              <div>
-                <dt>Prompt Approval</dt>
-                <dd>{detail.classification.approvalRequired ? "required" : "optional"}</dd>
-              </div>
-              <div>
-                <dt>Plan Workflow</dt>
-                <dd>{usesPlanWorkflow ? "enabled" : "not required"}</dd>
-              </div>
-              <div>
-                <dt>Worker Plan</dt>
-                <dd>
-                  {currentWorkerPlan
-                    ? `v${currentWorkerPlan.version} · ${currentWorkerPlan.status.replace("_", " ")}`
-                    : "not generated"}
-                </dd>
-              </div>
-              {latestExecution ? (
-                <div>
-                  <dt>Execution Review</dt>
-                  <dd>{latestExecution.reviewStatus.replace("_", " ")}</dd>
-                </div>
-              ) : null}
-              {latestExecution?.pullRequest ? (
-                <div>
-                  <dt>GitHub PR</dt>
-                  <dd>
-                    <a href={latestExecution.pullRequest.url} rel="noreferrer" target="_blank">
-                      #{latestExecution.pullRequest.number ?? "draft"}
-                    </a>
-                  </dd>
-                </div>
-              ) : null}
-              {latestPullRequestStatus ? (
-                <div>
-                  <dt>PR State</dt>
-                  <dd>{formatPullRequestState(latestPullRequestStatus)}</dd>
-                </div>
-              ) : null}
-            </dl>
-          </article>
-
-          <article className="panel">
-            <h2>Routing Decision</h2>
-            <p className="subline">
-              OpenTop treats this as <strong>{detail.classification.taskType}</strong> work with{" "}
-              <strong>{detail.classification.risk}</strong> change risk and <strong>{detail.classification.complexity}</strong>{" "}
-              expected size.
-            </p>
-            <dl className="stacked-meta">
-              <div>
-                <dt>Profile</dt>
-                <dd>{detail.executionPlan.profile.id}</dd>
-              </div>
-              <div>
-                <dt>Next Mode</dt>
-                <dd>{sentenceCase(detail.classification.suggestedMode)}</dd>
-              </div>
-              <div>
-                <dt>Provider</dt>
-                <dd>{detail.classification.suggestedProviderId}</dd>
-              </div>
-              <div>
-                <dt>Model</dt>
-                <dd>{detail.classification.suggestedModel}</dd>
-              </div>
-              <div>
-                <dt>Touches</dt>
-                <dd>{detail.classification.affectedAreas.join(", ")}</dd>
-              </div>
-            </dl>
-            <details className="disclosure">
-              <summary>Show technical routing details</summary>
-              <div className="disclosure-body">
-                <dl className="stacked-meta">
-                  <div>
-                    <dt>Signals</dt>
-                    <dd>{detail.classification.detectedSignals.join(", ") || "none"}</dd>
-                  </div>
-                  <div>
-                    <dt>Reason</dt>
-                    <dd>{detail.classification.reason}</dd>
-                  </div>
-                </dl>
-              </div>
-            </details>
-          </article>
-
-          <article className="panel">
-            <h2>Ticket Resolution</h2>
-            {ticketClosed ? (
-              <div className="stack-actions">
-                <p className="subline">
-                  This ticket is closed as{" "}
-                  <strong>
-                    {detail.ticket.resolutionType
-                      ? formatResolutionType(detail.ticket.resolutionType)
-                      : "PR created in OpenTop"}
-                  </strong>
-                  .
-                </p>
-                {detail.ticket.resolutionNote ? (
-                  <p className="subline">{detail.ticket.resolutionNote}</p>
-                ) : latestExecution?.pullRequest ? (
-                  <p className="subline">
-                    GitHub already has a pull request for this ticket. Reopen it only when you intentionally want a follow-up execution in OpenTop.
-                  </p>
-                ) : null}
-                <form action={reopenTicketAction}>
-                  <input name="ticketId" type="hidden" value={detail.ticket.id} />
-                  <button type="submit">Reopen ticket</button>
-                </form>
-              </div>
-            ) : (
-              <form action={resolveTicketAction} className="stack-form">
-                <input name="ticketId" type="hidden" value={detail.ticket.id} />
-                <label className="field">
-                  <span>Close as</span>
-                  <select defaultValue="manual_pr" name="resolutionType">
-                    <option value="manual_pr">Done, PR handled manually</option>
-                    <option value="no_pr">Done without PR</option>
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Note</span>
-                  <textarea
-                    name="resolutionNote"
-                    placeholder="Optional note for the team, for example where the manual PR will happen."
-                    rows={3}
-                  />
-                </label>
-                <button type="submit">Mark ticket done</button>
-              </form>
-            )}
-          </article>
 
           <article className="panel panel-wide">
             <div className="panel-heading">

@@ -34,6 +34,10 @@ function formatReviewStatus(status: "not_required" | "pending" | "approved" | "r
   return status.replace("_", " ");
 }
 
+function titleCase(value: string): string {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function formatCheckStatus(status: "passed" | "failed" | "skipped"): string {
   return status;
 }
@@ -364,7 +368,7 @@ export default async function ExecutionDetailPage({
             <p className="eyebrow">Execution Detail</p>
             <h1>Execution #{execution.id}</h1>
             <p className="subline">
-              Ticket #{execution.ticketId} · {execution.providerId}/{execution.modelId} ·{" "}
+              Ticket #{execution.ticketId} · {titleCase(execution.profileId)} ·{" "}
               {formatExecutionStatus(execution.status)}
             </p>
           </div>
@@ -442,277 +446,298 @@ export default async function ExecutionDetailPage({
           </section>
         ) : null}
 
-        <section className="workflow-summary">
-          <article className={`action-banner action-banner-${actionCenter.tone}`}>
-            <p className="action-banner-label">Current Focus</p>
-            <h2>{actionCenter.title}</h2>
-            <p>{actionCenter.body}</p>
-          </article>
+        <section className="execution-top-grid">
+          <div className="execution-main-column">
+            <article className={`action-banner action-banner-${actionCenter.tone}`}>
+              <p className="action-banner-label">Current Focus</p>
+              <h2>{actionCenter.title}</h2>
+              <p>{actionCenter.body}</p>
+            </article>
 
-          <article className="flow-card">
-            <h2>Execution Snapshot</h2>
-            <div className="flow-steps">
-              <div className="flow-step flow-step-done">
-                <span>Status</span>
-                <strong>{formatExecutionStatus(execution.status)}</strong>
-              </div>
-              <div className={`flow-step flow-step-${execution.reviewStatus === "approved" ? "done" : execution.reviewStatus === "pending" ? "current" : "upcoming"}`}>
-                <span>Review</span>
-                <strong>{formatReviewStatus(execution.reviewStatus)}</strong>
-              </div>
-              <div className={`flow-step flow-step-${execution.pullRequest ? "done" : execution.reviewStatus === "approved" ? "current" : "upcoming"}`}>
-                <span>PR</span>
-                <strong>{execution.pullRequest ? formatPullRequestState(pullRequestStatus) : "Pending"}</strong>
-              </div>
-            </div>
-          </article>
-        </section>
-
-        <section className="summary-strip" aria-label="Execution summary">
-          <article className="summary-card">
-            <span className="summary-label">Changed Files</span>
-            <strong className="summary-value">{execution.changedFiles.length}</strong>
-            <p className="summary-copy">
-              {execution.artifactKind === "review_output" ? "Review-only output" : execution.branchName}
-            </p>
-          </article>
-          <article className="summary-card">
-            <span className="summary-label">Checks</span>
-            <strong className="summary-value">{checkRuns.length}</strong>
-            <p className="summary-copy">
-              {checkRuns.length === 0 ? "No stored check runs" : `${checkRuns.filter((checkRun) => checkRun.status === "failed").length} failing`}
-            </p>
-          </article>
-          <article className="summary-card">
-            <span className="summary-label">Risk Level</span>
-            <strong className="summary-value">{execution.riskSummary?.level ?? "none"}</strong>
-            <p className="summary-copy">{execution.providerId}/{execution.modelId}</p>
-          </article>
-        </section>
-
-        <section className="detail-grid">
-          <article className="panel">
-            <h2>Execution</h2>
-            <dl className="stacked-meta">
-              <div>
-                <dt>Status</dt>
-                <dd>{formatExecutionStatus(execution.status)}</dd>
-              </div>
-              <div>
-                <dt>Branch</dt>
-                <dd>{execution.branchName}</dd>
-              </div>
-              <div>
-                <dt>Run Kind</dt>
-                <dd>{execution.runKind.replace("_", " ")}</dd>
-              </div>
-              <div>
-                <dt>Workspace</dt>
-                <dd>{execution.workspacePath}</dd>
-              </div>
-              <div>
-                <dt>Profile</dt>
-                <dd>{execution.profileId}</dd>
-              </div>
-              {execution.workerPlanId ? (
-                <div>
-                  <dt>Worker Plan</dt>
-                  <dd>{execution.workerPlanId}</dd>
+            <article className="flow-card">
+              <h2>Execution Snapshot</h2>
+              <div className="flow-steps">
+                <div className="flow-step flow-step-done">
+                  <span>Status</span>
+                  <strong>{formatExecutionStatus(execution.status)}</strong>
                 </div>
-              ) : null}
-              {execution.workItemId ? (
-                <div>
-                  <dt>Work Item</dt>
-                  <dd>{execution.workItemId}</dd>
+                <div
+                  className={`flow-step flow-step-${
+                    execution.reviewStatus === "approved"
+                      ? "done"
+                      : execution.reviewStatus === "pending"
+                        ? "current"
+                        : "upcoming"
+                  }`}
+                >
+                  <span>Review</span>
+                  <strong>{formatReviewStatus(execution.reviewStatus)}</strong>
                 </div>
-              ) : null}
-              <div>
-                <dt>Artifact</dt>
-                <dd>{execution.artifactKind}</dd>
-              </div>
-              <div>
-                <dt>Output Kind</dt>
-                <dd>{formatOutputKind(execution.outputKind)}</dd>
-              </div>
-              <div>
-                <dt>Review Status</dt>
-                <dd>{formatReviewStatus(execution.reviewStatus)}</dd>
-              </div>
-              {execution.reviewedAt ? (
-                <div>
-                  <dt>Reviewed</dt>
-                  <dd>{execution.reviewedAt}</dd>
+                <div
+                  className={`flow-step flow-step-${
+                    execution.pullRequest ? "done" : execution.reviewStatus === "approved" ? "current" : "upcoming"
+                  }`}
+                >
+                  <span>PR</span>
+                  <strong>{execution.pullRequest ? formatPullRequestState(pullRequestStatus) : "Pending"}</strong>
                 </div>
-              ) : null}
-              <div>
-                <dt>Created</dt>
-                <dd>{execution.createdAt}</dd>
               </div>
-            </dl>
-          </article>
+            </article>
 
-          <article className="panel">
-            <h2>Routing Snapshot</h2>
-            <p className="subline">
-              OpenTop routed this execution as <strong>{execution.classificationSnapshot.taskType}</strong> work with{" "}
-              <strong>{execution.classificationSnapshot.risk}</strong> risk and{" "}
-              <strong>{execution.classificationSnapshot.complexity}</strong> expected size.
-            </p>
-            <dl className="stacked-meta">
-              <div>
-                <dt>Profile</dt>
-                <dd>{execution.classificationSnapshot.suggestedProfile}</dd>
-              </div>
-              <div>
-                <dt>Provider</dt>
-                <dd>{execution.classificationSnapshot.suggestedProviderId}</dd>
-              </div>
-              <div>
-                <dt>Model</dt>
-                <dd>{execution.classificationSnapshot.suggestedModel}</dd>
-              </div>
-              <div>
-                <dt>Signals</dt>
-                <dd>{execution.classificationSnapshot.detectedSignals.length}</dd>
-              </div>
-            </dl>
-            <details className="disclosure">
-              <summary>Show technical routing signals</summary>
-              <div className="disclosure-body">
-                <p className="subline">{execution.classificationSnapshot.detectedSignals.join(", ") || "none"}</p>
-              </div>
-            </details>
-          </article>
+            <section className="summary-strip summary-strip-compact" aria-label="Execution summary">
+              <article className="summary-card">
+                <span className="summary-label">Files</span>
+                <strong className="summary-value summary-value-tight">{execution.changedFiles.length}</strong>
+                <p className="summary-copy">
+                  {execution.artifactKind === "review_output" ? "Review-only output" : execution.branchName}
+                </p>
+              </article>
+              <article className="summary-card">
+                <span className="summary-label">Checks</span>
+                <strong className="summary-value summary-value-tight">{checkRuns.length}</strong>
+                <p className="summary-copy">
+                  {checkRuns.length === 0
+                    ? "No stored check runs"
+                    : `${checkRuns.filter((checkRun) => checkRun.status === "failed").length} failing`}
+                </p>
+              </article>
+              <article className="summary-card">
+                <span className="summary-label">Risk</span>
+                <strong className="summary-value summary-value-tight">
+                  {execution.riskSummary?.level ? titleCase(execution.riskSummary.level) : "None"}
+                </strong>
+                <p className="summary-copy">
+                  {execution.providerId}/{execution.modelId}
+                </p>
+              </article>
+            </section>
 
-          <article className="panel">
-            <h2>Next Steps</h2>
-            <ul className="stack-list">
-              {nextActions.map((action) => (
-                <li key={action}>{action}</li>
-              ))}
-            </ul>
-          </article>
+            <article className="panel panel-full">
+              <h2>Review Guidance</h2>
+              <p className="review-guidance-title">{reviewGuidance.title}</p>
+              <p className="subline">{reviewGuidance.body}</p>
+              <ul className="stack-list">
+                {nextActions.map((action) => (
+                  <li key={action}>{action}</li>
+                ))}
+              </ul>
+            </article>
+          </div>
 
-          <article className="panel">
-            <h2>Review Guidance</h2>
-            <p className="review-guidance-title">{reviewGuidance.title}</p>
-            <p className="subline">{reviewGuidance.body}</p>
-          </article>
+          <aside className="execution-side-column">
+            <article className="panel">
+              <h2>Execution</h2>
+              <dl className="stacked-meta">
+                <div>
+                  <dt>Status</dt>
+                  <dd>{formatExecutionStatus(execution.status)}</dd>
+                </div>
+                <div>
+                  <dt>Branch</dt>
+                  <dd>{execution.branchName}</dd>
+                </div>
+                <div>
+                  <dt>Run Kind</dt>
+                  <dd>{execution.runKind.replace("_", " ")}</dd>
+                </div>
+                <div>
+                  <dt>Workspace</dt>
+                  <dd>{execution.workspacePath}</dd>
+                </div>
+                <div>
+                  <dt>Profile</dt>
+                  <dd>{execution.profileId}</dd>
+                </div>
+                {execution.workerPlanId ? (
+                  <div>
+                    <dt>Worker Plan</dt>
+                    <dd>{execution.workerPlanId}</dd>
+                  </div>
+                ) : null}
+                {execution.workItemId ? (
+                  <div>
+                    <dt>Work Item</dt>
+                    <dd>{execution.workItemId}</dd>
+                  </div>
+                ) : null}
+                <div>
+                  <dt>Artifact</dt>
+                  <dd>{execution.artifactKind}</dd>
+                </div>
+                <div>
+                  <dt>Output Kind</dt>
+                  <dd>{formatOutputKind(execution.outputKind)}</dd>
+                </div>
+                <div>
+                  <dt>Review Status</dt>
+                  <dd>{formatReviewStatus(execution.reviewStatus)}</dd>
+                </div>
+                {execution.reviewedAt ? (
+                  <div>
+                    <dt>Reviewed</dt>
+                    <dd>{execution.reviewedAt}</dd>
+                  </div>
+                ) : null}
+                <div>
+                  <dt>Created</dt>
+                  <dd>{execution.createdAt}</dd>
+                </div>
+              </dl>
+            </article>
 
-          <article className="panel">
-            <h2>Review Decision</h2>
-            {execution.reviewStatus === "pending" || execution.reviewStatus === "rejected" ? (
-              <div className="stack-actions">
-                <form action={approveExecutionReviewAction}>
-                  <input name="executionId" type="hidden" value={execution.id} />
-                  <input name="ticketId" type="hidden" value={execution.ticketId} />
-                  <button type="submit">Approve changes</button>
-                </form>
-                {checkRuns.some((checkRun) => checkRun.status === "failed") ? (
+            <article className="panel">
+              <h2>Review Decision</h2>
+              {execution.reviewStatus === "pending" || execution.reviewStatus === "rejected" ? (
+                <div className="stack-actions">
                   <form action={approveExecutionReviewAction}>
                     <input name="executionId" type="hidden" value={execution.id} />
                     <input name="ticketId" type="hidden" value={execution.ticketId} />
-                    <input name="overrideFailedChecks" type="hidden" value="1" />
-                    <button className="ghost-button" type="submit">
-                      Approve with failed-check override
-                    </button>
+                    <button type="submit">Approve changes</button>
                   </form>
-                ) : null}
-                <form action={rejectExecutionReviewAction}>
-                  <input name="executionId" type="hidden" value={execution.id} />
-                  <input name="ticketId" type="hidden" value={execution.ticketId} />
-                  <button className="ghost-button" type="submit">
-                    Reject changes
-                  </button>
-                </form>
-              </div>
-            ) : (
-              <p className="subline">
-                {execution.reviewStatus === "approved"
-                  ? "This execution has already been approved."
-                  : "This execution does not currently require a manual review decision."}
-              </p>
-            )}
-          </article>
-
-          <article className="panel">
-            <h2>Pull Request</h2>
-            {execution.pullRequest ? (
-              <div className="stack-actions">
-                <p className="subline">
-                  Draft PR #{execution.pullRequest.number ?? "?"} on {execution.pullRequest.repositoryFullName}
-                </p>
-                <a className="ghost-button" href={execution.pullRequest.url} rel="noreferrer" target="_blank">
-                  Open draft PR
-                </a>
-                <p className="subline">
-                  {execution.pullRequest.headBranch} {"->"} {execution.pullRequest.baseBranch}
-                </p>
-                {pullRequestStatus ? (
-                  <dl className="stacked-meta">
-                    <div>
-                      <dt>Live state</dt>
-                      <dd>{formatPullRequestState(pullRequestStatus)}</dd>
-                    </div>
-                    <div>
-                      <dt>GitHub review</dt>
-                      <dd>{pullRequestStatus.reviewDecision || "(no decision yet)"}</dd>
-                    </div>
-                    <div>
-                      <dt>Merge state</dt>
-                      <dd>{pullRequestStatus.mergeStateStatus ?? "(not reported)"}</dd>
-                    </div>
-                    {pullRequestStatus.mergedAt ? (
-                      <div>
-                        <dt>Merged</dt>
-                        <dd>{new Date(pullRequestStatus.mergedAt).toLocaleString()}</dd>
-                      </div>
-                    ) : null}
-                  </dl>
-                ) : null}
-                {pullRequestStatus?.canMarkReadyForReview ? (
-                  <form action={markPullRequestReadyAction}>
+                  {checkRuns.some((checkRun) => checkRun.status === "failed") ? (
+                    <form action={approveExecutionReviewAction}>
+                      <input name="executionId" type="hidden" value={execution.id} />
+                      <input name="ticketId" type="hidden" value={execution.ticketId} />
+                      <input name="overrideFailedChecks" type="hidden" value="1" />
+                      <button className="ghost-button" type="submit">
+                        Approve with failed-check override
+                      </button>
+                    </form>
+                  ) : null}
+                  <form action={rejectExecutionReviewAction}>
                     <input name="executionId" type="hidden" value={execution.id} />
                     <input name="ticketId" type="hidden" value={execution.ticketId} />
-                    <button type="submit">Mark ready for review</button>
+                    <button className="ghost-button" type="submit">
+                      Reject changes
+                    </button>
                   </form>
-                ) : null}
-                {pullRequestStatus?.readyForReview ? (
-                  <p className="notice notice-success">
-                    GitHub shows this PR as ready for review. Merge rules now depend on repository checks and approvals.
+                </div>
+              ) : (
+                <p className="subline">
+                  {execution.reviewStatus === "approved"
+                    ? "This execution has already been approved."
+                    : "This execution does not currently require a manual review decision."}
+                </p>
+              )}
+            </article>
+
+            <article className="panel">
+              <h2>Pull Request</h2>
+              {execution.pullRequest ? (
+                <div className="stack-actions">
+                  <p className="subline">
+                    Draft PR #{execution.pullRequest.number ?? "?"} on {execution.pullRequest.repositoryFullName}
                   </p>
-                ) : pullRequestStatus?.state === "MERGED" ? (
-                  <p className="notice notice-success">This pull request has already been merged on GitHub.</p>
-                ) : pullRequestStatus?.state === "CLOSED" ? (
-                  <p className="notice notice-warning">This pull request is closed on GitHub and is no longer an active handoff path.</p>
-                ) : (
-                  <p className="notice notice-info">
-                    Draft pull requests cannot be merged yet. Mark the PR ready for review when you want GitHub review and merge rules to kick in.
+                  <a className="ghost-button" href={execution.pullRequest.url} rel="noreferrer" target="_blank">
+                    Open draft PR
+                  </a>
+                  <p className="subline">
+                    {execution.pullRequest.headBranch} {"->"} {execution.pullRequest.baseBranch}
                   </p>
-                )}
-              </div>
-            ) : execution.reviewStatus === "approved" ? (
-              <div className="stack-actions">
-                <form action={createPullRequestAction}>
-                  <input name="executionId" type="hidden" value={execution.id} />
-                  <input name="ticketId" type="hidden" value={execution.ticketId} />
-                  <button type="submit">Create draft PR</button>
-                </form>
-                {checkRuns.some((checkRun) => checkRun.status === "failed") ? (
+                  {pullRequestStatus ? (
+                    <dl className="stacked-meta">
+                      <div>
+                        <dt>Live state</dt>
+                        <dd>{formatPullRequestState(pullRequestStatus)}</dd>
+                      </div>
+                      <div>
+                        <dt>GitHub review</dt>
+                        <dd>{pullRequestStatus.reviewDecision || "(no decision yet)"}</dd>
+                      </div>
+                      <div>
+                        <dt>Merge state</dt>
+                        <dd>{pullRequestStatus.mergeStateStatus ?? "(not reported)"}</dd>
+                      </div>
+                      {pullRequestStatus.mergedAt ? (
+                        <div>
+                          <dt>Merged</dt>
+                          <dd>{new Date(pullRequestStatus.mergedAt).toLocaleString()}</dd>
+                        </div>
+                      ) : null}
+                    </dl>
+                  ) : null}
+                  {pullRequestStatus?.canMarkReadyForReview ? (
+                    <form action={markPullRequestReadyAction}>
+                      <input name="executionId" type="hidden" value={execution.id} />
+                      <input name="ticketId" type="hidden" value={execution.ticketId} />
+                      <button type="submit">Mark ready for review</button>
+                    </form>
+                  ) : null}
+                  {pullRequestStatus?.readyForReview ? (
+                    <p className="notice notice-success">
+                      GitHub shows this PR as ready for review. Merge rules now depend on repository checks and approvals.
+                    </p>
+                  ) : pullRequestStatus?.state === "MERGED" ? (
+                    <p className="notice notice-success">This pull request has already been merged on GitHub.</p>
+                  ) : pullRequestStatus?.state === "CLOSED" ? (
+                    <p className="notice notice-warning">
+                      This pull request is closed on GitHub and is no longer an active handoff path.
+                    </p>
+                  ) : (
+                    <p className="notice notice-info">
+                      Draft pull requests cannot be merged yet. Mark the PR ready for review when you want GitHub review and merge rules to kick in.
+                    </p>
+                  )}
+                </div>
+              ) : execution.reviewStatus === "approved" ? (
+                <div className="stack-actions">
                   <form action={createPullRequestAction}>
                     <input name="executionId" type="hidden" value={execution.id} />
                     <input name="ticketId" type="hidden" value={execution.ticketId} />
-                    <input name="overrideFailedChecks" type="hidden" value="1" />
-                    <button className="ghost-button" type="submit">
-                      Create draft PR with failed-check override
-                    </button>
+                    <button type="submit">Create draft PR</button>
                   </form>
-                ) : null}
-              </div>
-            ) : (
-              <p className="subline">Approve the execution review before creating a draft pull request.</p>
-            )}
-          </article>
+                  {checkRuns.some((checkRun) => checkRun.status === "failed") ? (
+                    <form action={createPullRequestAction}>
+                      <input name="executionId" type="hidden" value={execution.id} />
+                      <input name="ticketId" type="hidden" value={execution.ticketId} />
+                      <input name="overrideFailedChecks" type="hidden" value="1" />
+                      <button className="ghost-button" type="submit">
+                        Create draft PR with failed-check override
+                      </button>
+                    </form>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="subline">Approve the execution review before creating a draft pull request.</p>
+              )}
+            </article>
+
+            <article className="panel">
+              <h2>Run Context</h2>
+              <p className="subline">
+                This execution was routed as {execution.classificationSnapshot.taskType} work with a{" "}
+                {execution.classificationSnapshot.risk}-risk, {execution.classificationSnapshot.complexity}-complexity plan.
+              </p>
+              <dl className="stacked-meta">
+                <div>
+                  <dt>Profile</dt>
+                  <dd>{titleCase(execution.classificationSnapshot.suggestedProfile)}</dd>
+                </div>
+                <div>
+                  <dt>Provider</dt>
+                  <dd>{execution.classificationSnapshot.suggestedProviderId}</dd>
+                </div>
+                <div>
+                  <dt>Model</dt>
+                  <dd>{execution.classificationSnapshot.suggestedModel}</dd>
+                </div>
+                <div>
+                  <dt>Affected Areas</dt>
+                  <dd>{execution.classificationSnapshot.affectedAreas.map((area) => titleCase(area)).join(", ")}</dd>
+                </div>
+              </dl>
+              <details className="disclosure">
+                <summary>Why this route was chosen</summary>
+                <div className="disclosure-body">
+                  <p className="subline">{execution.classificationSnapshot.reason}</p>
+                  <p className="subline">{execution.classificationSnapshot.detectedSignals.join(", ") || "none"}</p>
+                </div>
+              </details>
+            </article>
+          </aside>
+        </section>
+
+        <section className="detail-grid">
 
           <article className="panel panel-wide">
             <h2>Checks</h2>
