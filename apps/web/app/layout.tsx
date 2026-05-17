@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./styles.css";
+import { AppShell } from "../components/app-shell/AppShell";
 
 export const metadata: Metadata = {
   title: "OpenTop",
@@ -9,7 +10,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AppShell>{children}</AppShell>
+      </body>
     </html>
   );
 }

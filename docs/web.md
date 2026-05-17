@@ -4,6 +4,8 @@ The Web UI is the primary user interface for OpenTop.
 
 The Web app lives in `apps/web` and uses Next.js. It reads data through the local API, not directly from SQLite.
 
+The current UX and technical target structure for the Web app is documented separately in [Web UI Architecture](implementation/web-ui-architecture.md).
+
 ## Start
 
 The normal user command is:
@@ -91,7 +93,7 @@ Shows:
 - execution history
 - `Start execution` action plus quick link to the latest execution
 - latest execution review status when code changes are waiting for approval
-- `Mark ticket done`, `Done, PR handled manually`, `Done without PR`, and `Reopen ticket` actions so PR creation stays optional
+- `Done, PR handled manually`, `Done without PR`, and `Reopen ticket` actions so PR creation stays optional
 
 The Web UI intentionally exposes only two explicit close modes in the ticket workflow:
 
@@ -100,7 +102,7 @@ The Web UI intentionally exposes only two explicit close modes in the ticket wor
 
 The older generic `done` resolution value is still tolerated internally for compatibility, but it is no longer presented as a primary user choice.
 
-When OpenTop itself creates a draft pull request, the ticket is automatically moved to `Done`. To continue work after that point, reopen the ticket first.
+When OpenTop itself creates a draft pull request, the ticket is automatically closed in OpenTop. To continue work after that point, reopen the ticket first.
 
 ### Execution Detail
 
@@ -130,6 +132,8 @@ Shows:
 - prompt snapshot
 - execution logs
 - draft pull-request creation and stored draft PR output for approved executions
+- live GitHub pull-request state such as draft, ready for review, merged, or closed
+- `Mark ready for review` when the stored GitHub PR is still draft
 - non-crashing blocked PR notice when neither API tokens nor an authenticated `gh` CLI session are available
 
 OpenTop creates **draft** pull requests on purpose. They are intended as a handoff checkpoint and remain unmergeable until a human marks them ready for review on GitHub.
@@ -146,7 +150,8 @@ Path:
 
 Shows and updates:
 
-- summary cards for branch policy, context mode, and provider health
+- summary cards for branch policy, context mode, provider health, and GitHub handoff state
+- GitHub connection details for repository remote, auth source, account, scopes, and PR capabilities
 - effective branch policy
 - project branch policy
 - user branch policy
@@ -191,6 +196,26 @@ OPENTOP_REPO_PATH
 ```
 
 That value is passed to the API as `repoPath`.
+
+## Current Technical Shape
+
+Today the Web app is still relatively route-heavy:
+
+- global styles come from [apps/web/app/styles.css](/Users/ronnybigler/Documents/Coding/opentop/OpenTop/apps/web/app/styles.css)
+- the root layout imports that single stylesheet from [apps/web/app/layout.tsx](/Users/ronnybigler/Documents/Coding/opentop/OpenTop/apps/web/app/layout.tsx)
+- most screen markup still lives directly in route files under `apps/web/app/...`
+
+That is good enough for the current product surface, but it is not the long-term shape.
+
+The intended direction is:
+
+- thin route files
+- shared app-shell and workflow components
+- feature folders for board, tickets, executions, and settings
+- global CSS only for tokens, base styles, and shell layout
+- component-local CSS modules for feature styling
+
+See [Web UI Architecture](implementation/web-ui-architecture.md) for the target file layout and migration plan.
 
 ## Current Web Limitations
 

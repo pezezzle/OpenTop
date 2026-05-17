@@ -21,7 +21,8 @@ This directory contains the working documentation for OpenTop.
 - [Execution Flow](execution-flow.md): how work moves through OpenTop.
 - [Implementation Phased Plan](implementation/phased-plan.md): implementation path from local MVP to provider-neutral agentic control plane.
 - [OpenAI Codex Provider Design](implementation/openai-codex-provider-design.md): current product cut for Codex OAuth, `codex-cli`, and direct OpenAI API usage.
-- [Provider Recipes](provider-recipes.md): known-good provider setup examples.
+- [Web UI Architecture](implementation/web-ui-architecture.md): target navigation, component, and CSS/file organization for the Web app.
+- [Provider Recipes](provider-recipes.md): known-good provider and GitHub handoff setup examples.
 - [Database Migrations](database-migrations.md): local state upgrade strategy.
 - [Release Process](release-process.md): release and verification checklist.
 - [Security Checklist](security-checklist.md): safety review before broader use.

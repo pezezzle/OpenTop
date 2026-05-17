@@ -46,50 +46,7 @@ export default async function Home() {
   ) as Record<(typeof lanes)[number], TicketSummary[]>;
 
   return (
-    <main className="shell">
-      <aside className="sidebar">
-        <div>
-          <p className="eyebrow">OpenTop</p>
-          <h1>OpenTop</h1>
-          <p className="claim">Plan, run, review, and ship ticket work from one place.</p>
-        </div>
-
-        <nav aria-label="Primary">
-          <Link className="active" href="/">
-            Board
-          </Link>
-          <Link href="/settings">Settings</Link>
-        </nav>
-
-        <section className="status-card">
-          <p className="eyebrow">Workspace</p>
-          <strong>{status.project}</strong>
-          <span>{status.repository}</span>
-          <dl>
-            <div>
-              <dt>Branch</dt>
-              <dd>{status.currentBranch}</dd>
-            </div>
-            <div>
-              <dt>Policy</dt>
-              <dd>{status.branchPolicy}</dd>
-            </div>
-            <div>
-              <dt>Tree</dt>
-              <dd className={status.isClean ? "tone-good" : "tone-warn"}>{status.isClean ? "clean" : "dirty"}</dd>
-            </div>
-            <div>
-              <dt>Providers</dt>
-              <dd className={providerWarnings.length > 0 ? "tone-warn" : "tone-good"}>
-                {providerWarnings.length > 0
-                  ? `${providerWarnings.length} warning${providerWarnings.length === 1 ? "" : "s"}`
-                  : "ready"}
-              </dd>
-            </div>
-          </dl>
-        </section>
-      </aside>
-
+    <main className="page-stack">
       <section className="workspace">
         <header className="topbar">
           <div>
@@ -155,6 +112,9 @@ export default async function Home() {
           <article className="panel">
             <h2>Recent Executions</h2>
             <p className="subline">Use this as the quickest way back into review, failures, or follow-up work.</p>
+            <p className="inline-actions">
+              <Link href="/executions">Open all executions</Link>
+            </p>
             {executionResponse.executions.length === 0 ? (
               <p className="empty-state">No executions stored yet.</p>
             ) : (
@@ -222,6 +182,28 @@ export default async function Home() {
               </div>
             </article>
           ))}
+        </section>
+
+        <section className="summary-strip" aria-label="Workspace health">
+          <article className="summary-card">
+            <span className="summary-label">Repository</span>
+            <strong className="summary-value summary-value-tight">{status.project}</strong>
+            <p className="summary-copy">{status.repository}</p>
+          </article>
+          <article className="summary-card">
+            <span className="summary-label">Current Branch</span>
+            <strong className="summary-value summary-value-tight">{status.currentBranch}</strong>
+            <p className="summary-copy">Default branch: {status.defaultBranch}</p>
+          </article>
+          <article className="summary-card">
+            <span className="summary-label">Workspace State</span>
+            <strong className="summary-value summary-value-tight">{status.isClean ? "Clean" : "Dirty"}</strong>
+            <p className="summary-copy">
+              {providerWarnings.length > 0
+                ? `${providerWarnings.length} provider issue${providerWarnings.length === 1 ? "" : "s"} still need attention.`
+                : "Providers look ready for work."}
+            </p>
+          </article>
         </section>
       </section>
     </main>
