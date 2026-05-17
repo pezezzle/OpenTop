@@ -73,6 +73,7 @@ export interface Ticket {
   resolutionType?: TicketResolutionType;
   resolutionNote?: string;
   resolvedAt?: string;
+  reopenedAt?: string;
   classification?: Classification;
 }
 
@@ -86,6 +87,7 @@ export interface TicketCreateInput {
   resolutionType?: TicketResolutionType;
   resolutionNote?: string;
   resolvedAt?: string;
+  reopenedAt?: string;
 }
 
 export interface TicketUpdateInput {
@@ -93,6 +95,7 @@ export interface TicketUpdateInput {
   resolutionType?: TicketResolutionType;
   resolutionNote?: string;
   resolvedAt?: string;
+  reopenedAt?: string;
 }
 
 export interface Classification {

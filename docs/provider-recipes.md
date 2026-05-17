@@ -2,6 +2,23 @@
 
 This page collects the shortest reliable setups for common OpenTop provider paths.
 
+## GitHub Handoff
+
+OpenTop can create and manage draft-PR handoff when one of these auth paths is available:
+
+- `GITHUB_TOKEN`
+- `GH_TOKEN`
+- local `gh` CLI auth
+
+The shortest setup is:
+
+```bash
+gh auth login
+gh auth status
+```
+
+Then restart `opentop dashboard` and confirm the **GitHub Connection** panel in `/settings` shows the repository, account, scopes, and PR capabilities.
+
 ## Codex CLI
 
 Use this when you want local workspace execution through the installed Codex CLI.

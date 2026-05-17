@@ -14,8 +14,8 @@ import {
   runWorkerPlanAction,
   runTicketAction
 } from "../../actions";
-import type { PlanArtifact, PromptReview, WorkItem, WorkerPlan } from "../../../lib/opentop-api";
-import { getTicket } from "../../../lib/opentop-api";
+import type { GitHubPullRequestStatus, PlanArtifact, PromptReview, WorkItem, WorkerPlan } from "../../../lib/opentop-api";
+import { getExecutionPullRequestStatus, getTicket } from "../../../lib/opentop-api";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +26,22 @@ type DiffLine =
 
 function formatExecutionStatus(status: string): string {
   return status === "output_ready" ? "output ready for review" : status;
+}
+
+function formatPullRequestState(status: GitHubPullRequestStatus | null | undefined): string {
+  if (!status) {
+    return "draft created";
+  }
+
+  if (status.state === "MERGED") {
+    return "merged";
+  }
+
+  if (status.state === "CLOSED") {
+    return "closed";
+  }
+
+  return status.isDraft ? "draft" : "ready for review";
 }
 
 function formatReviewStatus(status: PromptReview["status"] | PlanArtifact["status"]): string {
@@ -165,15 +181,26 @@ function buildTicketFlow(
 function getTicketActionCenter(input: {
   detail: Awaited<ReturnType<typeof getTicket>>;
   latestExecution: Awaited<ReturnType<typeof getTicket>>["executions"][number] | undefined;
+  latestPullRequestStatus: GitHubPullRequestStatus | null;
   currentPlanArtifact: PlanArtifact | undefined;
   approvedPlanArtifact: PlanArtifact | undefined;
   currentWorkerPlan: WorkerPlan | undefined;
   workerPlanNeedsRefresh: boolean;
 }): { tone: "info" | "warning" | "success"; title: string; body: string } {
-  const { detail, latestExecution, currentPlanArtifact, approvedPlanArtifact, currentWorkerPlan, workerPlanNeedsRefresh } =
+  const {
+    detail,
+    latestExecution,
+    latestPullRequestStatus,
+    currentPlanArtifact,
+    approvedPlanArtifact,
+    currentWorkerPlan,
+    workerPlanNeedsRefresh
+  } =
     input;
 
-  if (detail.ticket.status === "done") {
+  const ticketClosed = detail.ticket.status === "done" || (latestExecution?.pullRequest && !detail.ticket.reopenedAt);
+
+  if (ticketClosed) {
     const resolutionLabel =
       detail.ticket.resolutionType === "manual_pr"
         ? "This ticket is closed in OpenTop and the pull request will be handled manually."
@@ -188,11 +215,29 @@ function getTicketActionCenter(input: {
     };
   }
 
+  if (latestPullRequestStatus?.state === "MERGED") {
+    return {
+      tone: "success",
+      title: "Pull request merged",
+      body: "GitHub shows the latest PR as merged. Reopen the ticket only if follow-up work should happen in OpenTop."
+    };
+  }
+
+  if (latestPullRequestStatus?.state === "CLOSED") {
+    return {
+      tone: "warning",
+      title: "Pull request closed on GitHub",
+      body: "The latest PR is no longer active on GitHub. Reopen the ticket if you want OpenTop to produce a replacement change set."
+    };
+  }
+
   if (latestExecution?.pullRequest) {
     return {
       tone: "success",
-      title: "Draft pull request created",
-      body: "The latest execution has already moved into the PR stage. Review the draft on GitHub or continue with follow-up ticket work."
+      title: latestPullRequestStatus?.readyForReview ? "Pull request ready for review" : "Draft pull request created",
+      body: latestPullRequestStatus?.readyForReview
+        ? "The latest execution is now in GitHub review. Use the PR as the external handoff point while the ticket stays closed in OpenTop."
+        : "The latest execution has already moved into the PR stage. Review the draft on GitHub or mark it ready for review from the execution page."
     };
   }
 
@@ -319,6 +364,10 @@ export default async function TicketDetailPage({
   try {
     const detail = await getTicket(ticketId);
     const latestExecution = detail.executions[0];
+    const latestPullRequestStatus = latestExecution?.pullRequest
+      ? (await getExecutionPullRequestStatus(latestExecution.id)).pullRequest
+      : null;
+    const ticketClosed = detail.ticket.status === "done" || (latestExecution?.pullRequest && !detail.ticket.reopenedAt);
     const currentPromptReview = detail.promptReview;
     const previousPromptReview = detail.promptReviews.find((promptReview) => promptReview.id !== currentPromptReview.id);
     const promptDiff = buildDiff(currentPromptReview.promptSnapshot, previousPromptReview?.promptSnapshot);
@@ -341,6 +390,7 @@ export default async function TicketDetailPage({
     const actionCenter = getTicketActionCenter({
       detail,
       latestExecution,
+      latestPullRequestStatus,
       currentPlanArtifact,
       approvedPlanArtifact,
       currentWorkerPlan,
@@ -367,7 +417,7 @@ export default async function TicketDetailPage({
                 Open latest execution
               </Link>
             ) : null}
-            {detail.ticket.status === "done" ? (
+            {ticketClosed ? (
               <form action={reopenTicketAction}>
                 <input name="ticketId" type="hidden" value={detail.ticket.id} />
                 <button type="submit">Reopen ticket</button>
@@ -479,7 +529,7 @@ export default async function TicketDetailPage({
           </section>
         ) : null}
 
-        {detail.ticket.status !== "done" &&
+        {!ticketClosed &&
         latestExecution?.status === "succeeded" &&
         latestExecution.reviewStatus === "approved" ? (
           <section className="notice notice-success">
@@ -562,7 +612,7 @@ export default async function TicketDetailPage({
               </div>
               <div>
                 <dt>Ticket Status</dt>
-                <dd>{detail.ticket.status}</dd>
+                <dd>{ticketClosed ? "done" : detail.ticket.status}</dd>
               </div>
               <div>
                 <dt>Branch</dt>
@@ -570,7 +620,13 @@ export default async function TicketDetailPage({
               </div>
               <div>
                 <dt>Resolution</dt>
-                <dd>{formatResolutionType(detail.ticket.resolutionType)}</dd>
+                <dd>
+                  {detail.ticket.resolutionType
+                    ? formatResolutionType(detail.ticket.resolutionType)
+                    : latestExecution?.pullRequest
+                      ? "PR created in OpenTop"
+                      : "Not resolved"}
+                </dd>
               </div>
               {detail.ticket.resolutionNote ? (
                 <div>
@@ -608,12 +664,18 @@ export default async function TicketDetailPage({
               ) : null}
               {latestExecution?.pullRequest ? (
                 <div>
-                  <dt>Draft PR</dt>
+                  <dt>GitHub PR</dt>
                   <dd>
                     <a href={latestExecution.pullRequest.url} rel="noreferrer" target="_blank">
                       #{latestExecution.pullRequest.number ?? "draft"}
                     </a>
                   </dd>
+                </div>
+              ) : null}
+              {latestPullRequestStatus ? (
+                <div>
+                  <dt>PR State</dt>
+                  <dd>{formatPullRequestState(latestPullRequestStatus)}</dd>
                 </div>
               ) : null}
             </dl>
@@ -667,12 +729,24 @@ export default async function TicketDetailPage({
 
           <article className="panel">
             <h2>Ticket Resolution</h2>
-            {detail.ticket.status === "done" ? (
+            {ticketClosed ? (
               <div className="stack-actions">
                 <p className="subline">
-                  This ticket is closed as <strong>{formatResolutionType(detail.ticket.resolutionType)}</strong>.
+                  This ticket is closed as{" "}
+                  <strong>
+                    {detail.ticket.resolutionType
+                      ? formatResolutionType(detail.ticket.resolutionType)
+                      : "PR created in OpenTop"}
+                  </strong>
+                  .
                 </p>
-                {detail.ticket.resolutionNote ? <p className="subline">{detail.ticket.resolutionNote}</p> : null}
+                {detail.ticket.resolutionNote ? (
+                  <p className="subline">{detail.ticket.resolutionNote}</p>
+                ) : latestExecution?.pullRequest ? (
+                  <p className="subline">
+                    GitHub already has a pull request for this ticket. Reopen it only when you intentionally want a follow-up execution in OpenTop.
+                  </p>
+                ) : null}
                 <form action={reopenTicketAction}>
                   <input name="ticketId" type="hidden" value={detail.ticket.id} />
                   <button type="submit">Reopen ticket</button>

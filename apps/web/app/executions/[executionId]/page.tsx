@@ -3,10 +3,11 @@ import { notFound } from "next/navigation";
 import {
   approveExecutionReviewAction,
   createPullRequestAction,
+  markPullRequestReadyAction,
   rejectExecutionReviewAction,
   runTicketAction
 } from "../../actions";
-import { getExecution } from "../../../lib/opentop-api";
+import { getExecution, getExecutionPullRequestStatus } from "../../../lib/opentop-api";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,26 @@ function formatReviewStatus(status: "not_required" | "pending" | "approved" | "r
 
 function formatCheckStatus(status: "passed" | "failed" | "skipped"): string {
   return status;
+}
+
+function formatPullRequestState(
+  pullRequestStatus:
+    | Awaited<ReturnType<typeof getExecutionPullRequestStatus>>["pullRequest"]
+    | undefined
+): string {
+  if (!pullRequestStatus) {
+    return "pending";
+  }
+
+  if (pullRequestStatus.state === "MERGED") {
+    return "merged";
+  }
+
+  if (pullRequestStatus.state === "CLOSED") {
+    return "closed";
+  }
+
+  return pullRequestStatus.isDraft ? "draft" : "ready for review";
 }
 
 function getReviewGuidance(outputKind: "plan" | "patch_proposal" | "review_note" | "general" | undefined): {
@@ -231,14 +252,39 @@ function extractFailureReason(execution: Awaited<ReturnType<typeof getExecution>
 function getExecutionActionCenter(input: {
   execution: Awaited<ReturnType<typeof getExecution>>["execution"];
   checkRuns: Awaited<ReturnType<typeof getExecution>>["checkRuns"];
+  pullRequestStatus: Awaited<ReturnType<typeof getExecutionPullRequestStatus>>["pullRequest"] | null;
 }): { tone: "info" | "warning" | "success"; title: string; body: string } {
-  const { execution, checkRuns } = input;
+  const { execution, checkRuns, pullRequestStatus } = input;
+
+  if (pullRequestStatus?.state === "MERGED") {
+    return {
+      tone: "success",
+      title: "Pull request merged",
+      body: "GitHub shows this pull request as merged. Treat the execution as fully handed off unless you intentionally reopen the ticket for follow-up work."
+    };
+  }
+
+  if (pullRequestStatus?.state === "CLOSED") {
+    return {
+      tone: "warning",
+      title: "Pull request was closed on GitHub",
+      body: "The stored PR no longer has an active review path on GitHub. Reopen the ticket only if you want a follow-up execution or a replacement PR."
+    };
+  }
+
+  if (pullRequestStatus?.readyForReview) {
+    return {
+      tone: "success",
+      title: "Pull request is ready for review",
+      body: "This execution has already moved into the GitHub review stage. Use the live pull request for downstream review and merge decisions."
+    };
+  }
 
   if (execution.pullRequest) {
     return {
       tone: "success",
       title: "Draft pull request is ready",
-      body: "This execution has already moved into the pull-request stage. Use the GitHub draft as the handoff point for downstream review, then mark it ready on GitHub before merging."
+      body: "This execution has already moved into the pull-request stage. Review the live GitHub status here, then mark the draft ready when you want it to become mergeable."
     };
   }
 
@@ -295,6 +341,9 @@ export default async function ExecutionDetailPage({
 
   try {
     const { execution, checkRuns } = await getExecution(executionId);
+    const pullRequestStatus = execution.pullRequest
+      ? (await getExecutionPullRequestStatus(executionId)).pullRequest
+      : null;
     const reviewGuidance = getReviewGuidance(execution.outputKind);
     const reviewSummary = execution.outputText ? extractSummary(execution.outputText) : undefined;
     const reviewBulletItems = execution.outputText ? extractBulletItems(execution.outputText) : [];
@@ -303,7 +352,7 @@ export default async function ExecutionDetailPage({
     const reviewFiles = execution.outputText ? extractReferencedFiles(execution.outputText) : [];
     const nextActions = buildNextActions(execution.outputKind);
     const failureReason = execution.status === "failed" ? extractFailureReason(execution) : undefined;
-    const actionCenter = getExecutionActionCenter({ execution, checkRuns });
+    const actionCenter = getExecutionActionCenter({ execution, checkRuns, pullRequestStatus });
     const missingCheckDetails =
       checkRuns.length === 0 &&
       execution.riskSummary?.reasons.some((reason) => reason.toLowerCase().includes("checks failed"));
@@ -376,6 +425,12 @@ export default async function ExecutionDetailPage({
           </section>
         ) : null}
 
+        {query.pullRequest === "ready" ? (
+          <section className="notice notice-success">
+            Draft pull request marked ready for review. GitHub can now apply the normal review and merge rules for it.
+          </section>
+        ) : null}
+
         {query.pullRequest === "blocked" ? (
           <section className="notice notice-warning">
             {query.reason?.includes("GITHUB_TOKEN") ||
@@ -407,7 +462,7 @@ export default async function ExecutionDetailPage({
               </div>
               <div className={`flow-step flow-step-${execution.pullRequest ? "done" : execution.reviewStatus === "approved" ? "current" : "upcoming"}`}>
                 <span>PR</span>
-                <strong>{execution.pullRequest ? "Created" : "Pending"}</strong>
+                <strong>{execution.pullRequest ? formatPullRequestState(pullRequestStatus) : "Pending"}</strong>
               </div>
             </div>
           </article>
@@ -593,9 +648,48 @@ export default async function ExecutionDetailPage({
                 <p className="subline">
                   {execution.pullRequest.headBranch} {"->"} {execution.pullRequest.baseBranch}
                 </p>
-                <p className="notice notice-info">
-                  Draft pull requests cannot be merged yet. Open the PR on GitHub and mark it ready for review when you want it to become mergeable.
-                </p>
+                {pullRequestStatus ? (
+                  <dl className="stacked-meta">
+                    <div>
+                      <dt>Live state</dt>
+                      <dd>{formatPullRequestState(pullRequestStatus)}</dd>
+                    </div>
+                    <div>
+                      <dt>GitHub review</dt>
+                      <dd>{pullRequestStatus.reviewDecision || "(no decision yet)"}</dd>
+                    </div>
+                    <div>
+                      <dt>Merge state</dt>
+                      <dd>{pullRequestStatus.mergeStateStatus ?? "(not reported)"}</dd>
+                    </div>
+                    {pullRequestStatus.mergedAt ? (
+                      <div>
+                        <dt>Merged</dt>
+                        <dd>{new Date(pullRequestStatus.mergedAt).toLocaleString()}</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                ) : null}
+                {pullRequestStatus?.canMarkReadyForReview ? (
+                  <form action={markPullRequestReadyAction}>
+                    <input name="executionId" type="hidden" value={execution.id} />
+                    <input name="ticketId" type="hidden" value={execution.ticketId} />
+                    <button type="submit">Mark ready for review</button>
+                  </form>
+                ) : null}
+                {pullRequestStatus?.readyForReview ? (
+                  <p className="notice notice-success">
+                    GitHub shows this PR as ready for review. Merge rules now depend on repository checks and approvals.
+                  </p>
+                ) : pullRequestStatus?.state === "MERGED" ? (
+                  <p className="notice notice-success">This pull request has already been merged on GitHub.</p>
+                ) : pullRequestStatus?.state === "CLOSED" ? (
+                  <p className="notice notice-warning">This pull request is closed on GitHub and is no longer an active handoff path.</p>
+                ) : (
+                  <p className="notice notice-info">
+                    Draft pull requests cannot be merged yet. Mark the PR ready for review when you want GitHub review and merge rules to kick in.
+                  </p>
+                )}
               </div>
             ) : execution.reviewStatus === "approved" ? (
               <div className="stack-actions">

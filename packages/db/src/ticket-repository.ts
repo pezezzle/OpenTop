@@ -32,6 +32,7 @@ export class SqliteTicketRepository implements TicketRepository {
       resolutionType: input.resolutionType ?? null,
       resolutionNote: input.resolutionNote ?? null,
       resolvedAt: input.resolvedAt ?? null,
+      reopenedAt: input.reopenedAt ?? null,
       createdAt: timestamp,
       updatedAt: timestamp
     })
@@ -78,6 +79,7 @@ export class SqliteTicketRepository implements TicketRepository {
         resolutionType: input.resolutionType ?? null,
         resolutionNote: input.resolutionNote ?? null,
         resolvedAt: input.resolvedAt ?? null,
+        reopenedAt: input.reopenedAt ?? null,
         updatedAt: new Date().toISOString()
       })
       .where(eq(ticketsTable.id, numericId))
@@ -107,7 +109,8 @@ function mapTicketRow(row: typeof ticketsTable.$inferSelect): Ticket {
     status: row.status as Ticket["status"],
     resolutionType: (row.resolutionType as Ticket["resolutionType"] | null) ?? undefined,
     resolutionNote: row.resolutionNote ?? undefined,
-    resolvedAt: row.resolvedAt ?? undefined
+    resolvedAt: row.resolvedAt ?? undefined,
+    reopenedAt: row.reopenedAt ?? undefined
   };
 }
 

@@ -43,6 +43,7 @@ export async function createOpenTopSqliteContext(
       resolution_type TEXT,
       resolution_note TEXT,
       resolved_at TEXT,
+      reopened_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -218,6 +219,12 @@ function applySchemaMigrations(sqlite: Database): number {
         ensureTicketColumn(sqlite, "resolution_type", "TEXT");
         ensureTicketColumn(sqlite, "resolution_note", "TEXT");
         ensureTicketColumn(sqlite, "resolved_at", "TEXT");
+      }
+    },
+    {
+      version: 5,
+      apply: () => {
+        ensureTicketColumn(sqlite, "reopened_at", "TEXT");
       }
     }
   ];

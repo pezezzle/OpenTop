@@ -226,6 +226,8 @@ Request fields:
 - `resolutionType` (`done`, `manual_pr`, or `no_pr`)
 - `resolutionNote` (optional)
 
+The current Web UI only offers `manual_pr` and `no_pr`. The plain `done` value remains accepted for compatibility with older stored state and callers.
+
 This route rejects the request when the latest execution is still running or when a successful code-changing execution still has a pending review decision.
 
 ### `POST /tickets/:ticketId/reopen`
@@ -449,6 +451,23 @@ This route:
 
 Draft PR creation is optional. A human can instead resolve the ticket manually through `/tickets/:ticketId/resolve`.
 When this route succeeds, OpenTop also marks the underlying ticket as `done` with an internal resolution marker so the workflow does not keep accepting new executions until the ticket is reopened.
+
+### `GET /github/status`
+
+Returns the live GitHub handoff status for the current repository, including:
+
+- detected GitHub remote
+- active auth method (`GITHUB_TOKEN`, `GH_TOKEN`, or `gh` CLI)
+- visible account and scopes when available
+- PR handoff capabilities such as draft creation and ready-for-review support
+
+### `GET /executions/:executionId/pull-request/status`
+
+Returns the live GitHub state for the stored PR on one execution, including draft/ready, merged/closed state, merge-state hints, and merged timestamp when present.
+
+### `POST /executions/:executionId/pull-request/ready`
+
+Marks a stored draft PR as ready for review through either GitHub API auth or the local `gh` CLI session, then returns the refreshed live PR state.
 
 ### `POST /classify`
 

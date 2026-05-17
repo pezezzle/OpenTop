@@ -11,6 +11,7 @@ import {
   createDraftPullRequest,
   disconnectProviderOauth,
   generateWorkerPlan,
+  markExecutionPullRequestReady,
   regeneratePlanArtifact,
   regeneratePromptReview,
   rejectExecutionReview,
@@ -148,6 +149,30 @@ export async function createPullRequestAction(formData: FormData) {
     revalidatePath(`/tickets/${ticketId}`);
     revalidatePath(`/executions/${executionId}`);
     redirect(`/executions/${executionId}?pullRequest=created`);
+  } catch (error) {
+    const params = new URLSearchParams({
+      pullRequest: "blocked",
+      reason: getActionErrorMessage(error)
+    });
+
+    redirect(`/executions/${executionId}?${params.toString()}`);
+  }
+}
+
+export async function markPullRequestReadyAction(formData: FormData) {
+  const executionId = String(formData.get("executionId") ?? "").trim();
+  const ticketId = String(formData.get("ticketId") ?? "").trim();
+
+  if (!executionId || !ticketId) {
+    throw new Error("Missing pull-request readiness fields.");
+  }
+
+  try {
+    await markExecutionPullRequestReady(executionId);
+    revalidatePath("/");
+    revalidatePath(`/tickets/${ticketId}`);
+    revalidatePath(`/executions/${executionId}`);
+    redirect(`/executions/${executionId}?pullRequest=ready`);
   } catch (error) {
     const params = new URLSearchParams({
       pullRequest: "blocked",

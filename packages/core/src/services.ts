@@ -786,19 +786,33 @@ export async function startExecutionForStoredTicket(
   branchPolicyOverride?: ExecutionBranchPolicy
 ): Promise<ExecutionRunResult> {
   const context = await resolveExecutionContext(ticketRepository, planArtifactRepository, config, ticketId);
-  const { promptReview, builtPrompt } = await preparePromptReviewForStoredTicket(
-    ticketRepository,
-    promptReviewRepository,
-    config,
-    projectContext,
-    ticketId,
-    { planArtifactRepository }
-  );
+  const latestExecution = await getLatestExecutionForTicket(executionRepository, ticketId);
   const branchResolution = resolveExecutionBranch(context.executionPlan, config, repositoryState, branchPolicyOverride);
   const executionPlan = {
     ...context.executionPlan,
     branchName: branchResolution.branchName ?? "none"
   };
+
+  if (latestExecution?.pullRequest && !context.ticket.reopenedAt) {
+    if (context.ticket.status !== "done") {
+      await ticketRepository.update(context.ticket.id, {
+        status: "done",
+        resolutionType: "done",
+        resolutionNote: `Pull request #${latestExecution.pullRequest.number ?? "?"} already exists in ${latestExecution.pullRequest.repositoryFullName}.`,
+        resolvedAt: new Date().toISOString(),
+        reopenedAt: undefined
+      });
+    }
+
+    return {
+      status: "blocked",
+      executionPlan,
+      branchResolution,
+      blocker: "ticket_closed",
+      reason: "This ticket already has a pull request. Reopen it before starting a new execution.",
+      planArtifact: context.latestPlanArtifact
+    };
+  }
 
   if (context.ticket.status === "done") {
     return {
@@ -807,10 +821,18 @@ export async function startExecutionForStoredTicket(
       branchResolution,
       blocker: "ticket_closed",
       reason: "This ticket is closed. Reopen it before starting a new execution.",
-      promptReview,
       planArtifact: context.latestPlanArtifact
     };
   }
+
+  const { promptReview, builtPrompt } = await preparePromptReviewForStoredTicket(
+    ticketRepository,
+    promptReviewRepository,
+    config,
+    projectContext,
+    ticketId,
+    { planArtifactRepository }
+  );
 
   if (branchResolution.decision === "blocked") {
     return {
@@ -1051,7 +1073,8 @@ export async function resolveStoredTicket(
     status: "done",
     resolutionType: input.resolutionType,
     resolutionNote: input.resolutionNote,
-    resolvedAt: new Date().toISOString()
+    resolvedAt: new Date().toISOString(),
+    reopenedAt: undefined
   });
 }
 
@@ -1069,7 +1092,8 @@ export async function reopenStoredTicket(
     status: deriveActiveTicketStatus(classification.approvalRequired, latestExecution),
     resolutionType: undefined,
     resolutionNote: undefined,
-    resolvedAt: undefined
+    resolvedAt: undefined,
+    reopenedAt: new Date().toISOString()
   });
 }
 
@@ -1204,7 +1228,8 @@ export async function createDraftPullRequestForExecution(
     status: "done",
     resolutionType: "done",
     resolutionNote: `Draft PR #${pullRequest.number ?? "?"} created in ${pullRequest.repositoryFullName}.`,
-    resolvedAt: new Date().toISOString()
+    resolvedAt: new Date().toISOString(),
+    reopenedAt: undefined
   });
 
   return executionRepository.update(execution.id, {

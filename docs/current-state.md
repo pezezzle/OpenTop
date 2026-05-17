@@ -23,6 +23,9 @@ OpenTop currently has:
 - diff summaries with per-file patch previews and line counts
 - risk summaries derived from classification, failed checks, diff size, and sensitive file changes
 - draft pull-request creation from approved executions, with rendered PR body and stored PR metadata
+- GitHub connection inspection through `GITHUB_TOKEN`, `GH_TOKEN`, or an authenticated `gh` CLI session
+- live GitHub pull-request state reads for stored executions
+- draft-to-ready-for-review transitions from the execution detail page
 - prompt building from ticket, config, project context, memory, and prompt templates
 - local SQLite persistence through `sql.js` and Drizzle
 - stored tickets
@@ -149,6 +152,8 @@ The API exposes real local data for Web:
 - execution review approval/rejection endpoints
 - ticket resolve/reopen endpoints for manual closure flows
 - draft pull-request creation endpoint for approved executions
+- GitHub handoff status endpoint for repository/auth visibility
+- live GitHub pull-request status and ready-for-review endpoints for stored executions
 - OAuth connect, exchange, and disconnect endpoints for hosted providers
 - executions
 
@@ -161,8 +166,8 @@ The Web UI currently has:
 - `/`: execution board
 - `/tickets/[ticketId]`: ticket detail, classification, prompt preview, prompt review status, prompt history, prompt diff, plan review status, plan history, plan diff, worker plan generation/history, work-item inspection, executions, and explicit ticket-resolution controls
 - `/tickets/[ticketId]`: classification now includes task type, detected signals, provider/model suggestion, reasoning, and prompt approval requirement
-- `/executions/[executionId]`: execution detail, prompt snapshot, structured review output, checks, execution logs, changed files, diff review, risk summary, review decision actions, and draft PR creation/output
-- `/settings`: branch policy settings plus provider health, compatibility warnings, and OAuth connection status
+- `/executions/[executionId]`: execution detail, prompt snapshot, structured review output, checks, execution logs, changed files, diff review, risk summary, draft/ready/merged PR state, review decision actions, and draft PR creation/output
+- `/settings`: branch policy settings plus provider health, GitHub handoff status, compatibility warnings, and OAuth connection status
 - `/settings`: context profile mode, active profile IDs, and prompt budget settings
 - `/settings`: provider setup form for type, connection method, and model tiers
 - `/settings/oauth/callback`: local OAuth callback completion and redirect back into Settings
@@ -193,7 +198,7 @@ This state directory is ignored by Git and should not be committed.
 
 Sequential worker-plan execution uses Git worktrees outside the target repository under a sibling `.opentop-worktrees/` directory so independent work-item branches can accumulate changes without dirtying the root working tree.
 
-Successful workspace-changing executions no longer count as effectively done on their own. They enter review with stored check runs, diff summaries, and a `pending` execution review status until a human explicitly approves or rejects them. Once approved, OpenTop can either mark the ticket as done through an explicit manual-resolution step or push the execution branch and open a GitHub draft pull request using `GITHUB_TOKEN`, `GH_TOKEN`, or an authenticated `gh` CLI session. When OpenTop creates that draft PR itself, it also closes the ticket so no further executions start until someone explicitly reopens it.
+Successful workspace-changing executions no longer count as effectively done on their own. They enter review with stored check runs, diff summaries, and a `pending` execution review status until a human explicitly approves or rejects them. Once approved, OpenTop can either mark the ticket as done through an explicit manual-resolution step or push the execution branch and open a GitHub draft pull request using `GITHUB_TOKEN`, `GH_TOKEN`, or an authenticated `gh` CLI session. OpenTop can now also inspect the live GitHub PR state and move a stored draft to `ready for review` from the execution detail page. When OpenTop creates that draft PR itself, it also closes the ticket so no further executions start until someone explicitly reopens it.
 
 The global `opentop` command is currently a local development link to the built CLI in this repo.
 

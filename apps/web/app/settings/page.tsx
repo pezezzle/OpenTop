@@ -5,7 +5,7 @@ import {
   updateContextSettingsAction,
   updateProviderAction
 } from "../actions";
-import { getConfig, getContext, getProviders, getStatus } from "../../lib/opentop-api";
+import { getConfig, getContext, getGitHubStatus, getProviders, getStatus } from "../../lib/opentop-api";
 
 export const dynamic = "force-dynamic";
 
@@ -33,14 +33,16 @@ interface SettingsPageProps {
 
 export default async function SettingsPage({ searchParams }: SettingsPageProps) {
   const params = (await searchParams) ?? {};
-  const [config, context, status, providerResponse] = await Promise.all([
+  const [config, context, status, providerResponse, githubStatus] = await Promise.all([
     getConfig(),
     getContext(),
     getStatus(),
-    getProviders()
+    getProviders(),
+    getGitHubStatus()
   ]);
   const readyProviders = providerResponse.providers.filter((provider) => provider.status === "ready").length;
   const providerAttentionCount = providerResponse.providers.length - readyProviders;
+  const githubReady = githubStatus.auth.status === "connected" && githubStatus.repository !== null;
   const oauthNotice =
     params.oauth === "connected"
       ? { tone: "success", text: `Provider "${params.provider ?? ""}" connected successfully.` }
@@ -86,6 +88,15 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             {providerAttentionCount > 0
               ? `${providerAttentionCount} provider${providerAttentionCount === 1 ? "" : "s"} still need attention.`
               : "All configured providers are ready to use."}
+          </p>
+        </article>
+        <article className="summary-card">
+          <span className="summary-label">GitHub Handoff</span>
+          <strong className="summary-value">{githubReady ? "connected" : "attention"}</strong>
+          <p className="summary-copy">
+            {githubStatus.repository
+              ? `${githubStatus.repository.repositoryFullName} · ${githubStatus.auth.login ?? githubStatus.auth.method}`
+              : "No GitHub repository remote detected yet."}
           </p>
         </article>
       </section>
@@ -135,6 +146,62 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                 <button type="submit">{policy}</button>
               </form>
             ))}
+          </div>
+        </article>
+
+        <article className="panel panel-span-2">
+          <h2>GitHub Connection</h2>
+          <p className="subline">
+            OpenTop uses this GitHub connection to create draft pull requests, read live PR state, and move drafts to ready-for-review without leaving the product.
+          </p>
+
+          <dl className="stacked-meta">
+            <div>
+              <dt>Repository</dt>
+              <dd>{githubStatus.repository ? githubStatus.repository.repositoryFullName : "(no GitHub origin remote detected)"}</dd>
+            </div>
+            <div>
+              <dt>Remote URL</dt>
+              <dd>{githubStatus.repository?.url ?? "(none)"}</dd>
+            </div>
+            <div>
+              <dt>Auth status</dt>
+              <dd className={githubStatus.auth.status === "connected" ? "tone-good" : "tone-danger"}>
+                {githubStatus.auth.label}
+              </dd>
+            </div>
+            <div>
+              <dt>Auth source</dt>
+              <dd>{githubStatus.auth.source}</dd>
+            </div>
+            <div>
+              <dt>Scopes</dt>
+              <dd>{githubStatus.auth.scopes.length > 0 ? githubStatus.auth.scopes.join(", ") : "(unknown or not available)"}</dd>
+            </div>
+            <div>
+              <dt>Capabilities</dt>
+              <dd>
+                {[
+                  githubStatus.capabilities.canCreateDraftPullRequests ? "create draft PRs" : "",
+                  githubStatus.capabilities.canReadPullRequests ? "read PR state" : "",
+                  githubStatus.capabilities.canMarkReadyForReview ? "mark ready for review" : ""
+                ]
+                  .filter(Boolean)
+                  .join(", ") || "(none)"}
+              </dd>
+            </div>
+          </dl>
+
+          <div className="provider-issues">
+            {githubStatus.issues.length === 0 ? (
+              <p className="notice notice-success">GitHub looks ready for OpenTop handoff work.</p>
+            ) : (
+              githubStatus.issues.map((issue, issueIndex) => (
+                <p className="notice notice-warning" key={`github-issue-${issueIndex}`}>
+                  <strong>warning</strong> · {issue}
+                </p>
+              ))
+            )}
           </div>
         </article>
 

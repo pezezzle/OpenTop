@@ -24,6 +24,7 @@ create ticket
 -> run configured checks when local files changed
 -> store diff summary and risk summary
 -> wait for explicit review approval when code changed
+-> either close the ticket manually or hand off to GitHub
 -> show execution in Web and CLI
 ```
 
@@ -202,9 +203,15 @@ When a successful execution changes local files, OpenTop also:
 - derives a review risk summary from classification, failed checks, and diff size
 - marks the execution `reviewStatus: pending`
 
-Only once a human approves that execution does the ticket move from `Review` to `Done`. Failed checks keep the execution reviewable but block approval unless the reviewer explicitly overrides them.
+Only once a human approves that execution does the ticket become ready for closure. Failed checks keep the execution reviewable but block approval unless the reviewer explicitly overrides them.
 
-After approval, OpenTop can render a draft PR body from `.opentop/templates/pull-request.md`, push the execution branch to `origin`, create a GitHub draft PR, and store the resulting PR metadata back on the execution.
+After approval, OpenTop can:
+
+- mark the ticket `Done, PR handled manually`
+- mark the ticket `Done without PR`
+- render a draft PR body from `.opentop/templates/pull-request.md`, push the execution branch to `origin`, create a GitHub draft PR, and store the resulting PR metadata back on the execution
+
+When OpenTop creates that draft PR itself, it closes the ticket automatically. A closed ticket blocks new executions until someone reopens it.
 
 When the execution is a planning pass, OpenTop also parses the planner output into a structured plan artifact and stores it for explicit review before implementation begins.
 
@@ -237,3 +244,4 @@ Still missing:
 
 - log streaming
 - safe parallel execution across worker plans
+- deeper GitHub review/comment synchronization beyond PR state and ready-for-review transitions

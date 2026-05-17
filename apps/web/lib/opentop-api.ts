@@ -106,6 +106,7 @@ export interface TicketSummary {
   resolutionType?: "done" | "manual_pr" | "no_pr";
   resolutionNote?: string;
   resolvedAt?: string;
+  reopenedAt?: string;
   classification: {
     taskType: string;
     risk: string;
@@ -376,6 +377,46 @@ export interface ProviderStatus {
   metadata: Record<string, string>;
 }
 
+export interface GitHubConnectionStatus {
+  repository: {
+    remoteName: string;
+    owner: string;
+    repo: string;
+    repositoryFullName: string;
+    url: string;
+  } | null;
+  auth: {
+    status: "connected" | "disconnected";
+    method: "env_token" | "gh_cli" | "none";
+    source: "GITHUB_TOKEN" | "GH_TOKEN" | "gh_cli" | "none";
+    login?: string;
+    scopes: string[];
+    label: string;
+  };
+  capabilities: {
+    canCreateDraftPullRequests: boolean;
+    canReadPullRequests: boolean;
+    canMarkReadyForReview: boolean;
+  };
+  issues: string[];
+}
+
+export interface GitHubPullRequestStatus {
+  repositoryFullName: string;
+  number: number;
+  title: string;
+  url: string;
+  state: "OPEN" | "CLOSED" | "MERGED";
+  isDraft: boolean;
+  baseBranch: string;
+  headBranch: string;
+  mergeStateStatus?: string;
+  reviewDecision?: string;
+  mergedAt?: string;
+  readyForReview: boolean;
+  canMarkReadyForReview: boolean;
+}
+
 export interface CreateTicketResponse {
   ticket: {
     id: string;
@@ -465,6 +506,10 @@ export async function getContext(): Promise<ContextResponse> {
 
 export async function getProviders(): Promise<{ repository: string; providers: ProviderStatus[] }> {
   return apiFetch("/providers");
+}
+
+export async function getGitHubStatus(): Promise<GitHubConnectionStatus> {
+  return apiFetch("/github/status");
 }
 
 export async function updateProvider(input: {
@@ -693,6 +738,21 @@ export async function createDraftPullRequest(
     body: JSON.stringify({
       overrideFailedChecks
     })
+  });
+}
+
+export async function getExecutionPullRequestStatus(
+  executionId: string
+): Promise<{ pullRequest: GitHubPullRequestStatus | null }> {
+  return apiFetch(`/executions/${executionId}/pull-request/status`);
+}
+
+export async function markExecutionPullRequestReady(
+  executionId: string
+): Promise<{ execution: ExecutionSummary; pullRequest: GitHubPullRequestStatus }> {
+  return apiFetch(`/executions/${executionId}/pull-request/ready`, {
+    method: "POST",
+    body: JSON.stringify({})
   });
 }
 

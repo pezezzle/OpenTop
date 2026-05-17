@@ -41,6 +41,7 @@ OpenTop controls:
 - which branch policy is used
 - which prompt context is sent to the agent
 - which logs, changed files, and review outputs are stored
+- whether the result is finished manually or handed off to GitHub
 
 ## User Interfaces
 
@@ -61,5 +62,11 @@ The current MVP is local-first:
 - local CLI
 - future provider execution through adapters
 
-The MVP does not push directly to the default branch. The intended workflow is isolated branches, checks, draft PRs, and human review.
+The MVP does not push directly to the default branch. The intended workflow is isolated branches, checks, human review, and then either GitHub handoff or explicit manual closure.
 
+In practice, the current product cut is:
+
+- `codex-cli` for Codex subscription-backed local execution
+- API-key providers such as `openai-api` for direct hosted model access
+- optional draft PR creation when GitHub auth is available
+- explicit `Done, PR handled manually` and `Done without PR` flows when you want to finish outside OpenTop

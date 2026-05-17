@@ -65,7 +65,12 @@ import {
   inspectProviderRuntime,
   startOauthFlow
 } from "@opentop/providers";
-import { createGitHubPullRequestService } from "./github-pull-request.js";
+import {
+  createGitHubPullRequestService,
+  getGitHubConnectionStatus,
+  getGitHubPullRequestStatus,
+  markPullRequestReadyForReview
+} from "./github-pull-request.js";
 
 const repoQuerySchema = z.object({
   repoPath: z.string().optional()
@@ -256,6 +261,13 @@ export function buildServer() {
       repository: targetDirectory,
       providers
     };
+  });
+
+  server.get("/github/status", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    return getGitHubConnectionStatus({
+      repositoryPath: targetDirectory
+    });
   });
 
   server.put("/providers/:providerId", async (request) => {
@@ -938,6 +950,22 @@ export function buildServer() {
     };
   });
 
+  server.get("/executions/:executionId/pull-request/status", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const executionId = z.object({ executionId: z.string() }).parse(request.params).executionId;
+    const repository = await createSqliteExecutionRepository({ startDirectory: targetDirectory });
+    const execution = await getExecution(repository, executionId);
+
+    return {
+      pullRequest: execution.pullRequest
+        ? await getGitHubPullRequestStatus({
+            repositoryPath: targetDirectory,
+            pullRequest: execution.pullRequest
+          })
+        : null
+    };
+  });
+
   server.post("/executions/:executionId/review/approve", async (request) => {
     const targetDirectory = resolveTargetDirectory(request.query);
     const executionId = z.object({ executionId: z.string() }).parse(request.params).executionId;
@@ -996,6 +1024,25 @@ export function buildServer() {
         }
       ),
       checkRuns: await listCheckRunsForStoredExecution(checkRunRepository, executionId)
+    };
+  });
+
+  server.post("/executions/:executionId/pull-request/ready", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const executionId = z.object({ executionId: z.string() }).parse(request.params).executionId;
+    const repository = await createSqliteExecutionRepository({ startDirectory: targetDirectory });
+    const execution = await getExecution(repository, executionId);
+
+    if (!execution.pullRequest) {
+      throw new Error("This execution does not have a stored pull request yet.");
+    }
+
+    return {
+      execution,
+      pullRequest: await markPullRequestReadyForReview({
+        repositoryPath: targetDirectory,
+        pullRequest: execution.pullRequest
+      })
     };
   });
 
@@ -1093,7 +1140,7 @@ function deriveWorkflowStage(
   approvalRequired: boolean,
   latestExecution: Awaited<ReturnType<typeof listExecutions>>[number] | undefined
 ): WorkflowStage {
-  if (ticket.status === "done") {
+  if (ticket.status === "done" || (latestExecution?.pullRequest && !ticket.reopenedAt)) {
     return "Done";
   }
 

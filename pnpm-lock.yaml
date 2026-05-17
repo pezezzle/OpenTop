@@ -20,6 +20,9 @@ importers:
 
   apps/api:
     dependencies:
+      '@octokit/rest':
+        specifier: ^21.0.2
+        version: 21.1.1
       '@opentop/core':
         specifier: workspace:*
         version: link:../../packages/core

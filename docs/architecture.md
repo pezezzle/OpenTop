@@ -247,7 +247,10 @@ It contains:
 - GitHub Issue import.
 - Draft pull request creation.
 - Pull request link updates.
-- Later status/comment synchronization.
+- GitHub connection inspection through token or `gh` CLI auth.
+- Live pull-request state reads.
+- Draft-to-ready-for-review transitions.
+- Later review/comment synchronization.
 
 ### `packages/shared`
 

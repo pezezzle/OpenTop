@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@octokit/rest": "^21.0.2",
     "@opentop/core": "workspace:*",
     "@opentop/db": "workspace:*",
     "@opentop/git": "workspace:*",

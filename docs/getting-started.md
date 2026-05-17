@@ -6,6 +6,7 @@
 - pnpm 9 or newer
 - Git
 - A local repository you want OpenTop to orchestrate
+- Optional for GitHub handoff: `gh auth login` or `GITHUB_TOKEN` / `GH_TOKEN`
 
 ## Install
 
@@ -109,6 +110,16 @@ Inspect stored executions:
 pnpm cli:dev -- executions list
 pnpm cli:dev -- executions show 1 --json
 ```
+
+## Pick a Provider Path
+
+Today the most reliable provider setups are:
+
+- `codex-cli` for ChatGPT / Codex subscription access
+- `openai-api` for direct OpenAI API access with `OPENAI_API_KEY`
+- `openrouter-api` with OAuth for hosted API access without a project-local secret
+
+See [Provider Recipes](provider-recipes.md) for exact config examples.
 
 ## Install a Local `opentop` Command
 
@@ -228,6 +239,33 @@ pnpm web
 ```
 
 The Web app is the primary OpenTop interface for daily use. Prefer the Web board, ticket detail pages, execution detail, and settings for normal operation; keep the CLI for setup, automation, and quick power-user workflows.
+
+## Connect GitHub for PR Handoff
+
+OpenTop does not have a separate GitHub connect button yet. It detects one of these auth paths automatically:
+
+- `GITHUB_TOKEN`
+- `GH_TOKEN`
+- a local `gh` CLI session
+
+The shortest setup is:
+
+```bash
+gh auth login
+gh auth status
+```
+
+Then restart the dashboard and open `/settings`. The **GitHub Connection** panel will show the active repository, auth source, account, scopes, and available PR actions.
+
+## Finish a Ticket
+
+After an execution has been reviewed and approved, you have three practical finish paths in the Web UI:
+
+- create a draft PR
+- mark the ticket `Done, PR handled manually`
+- mark the ticket `Done without PR`
+
+If OpenTop itself creates the draft PR, it closes the ticket automatically until someone reopens it.
 
 ## Configuration
 

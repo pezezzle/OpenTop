@@ -1025,6 +1025,100 @@ test("reopenStoredTicket restores a resolved ticket to an actionable state", asy
   assert.equal(reopenedTicket.resolvedAt, undefined);
 });
 
+test("reopenStoredTicket allows a follow-up execution even when an older PR exists", async () => {
+  const ticket = createTicket("ticket-reopen-pr-1", "Follow-up after an earlier PR");
+  const ticketRepository = new InMemoryTicketRepository(ticket);
+  const promptReviewRepository = new InMemoryPromptReviewRepository();
+  const planArtifactRepository = new InMemoryPlanArtifactRepository();
+  const executionRepository = new InMemoryExecutionRepository();
+  const checkRunRepository = new InMemoryCheckRunRepository();
+  const executionWorkspace = new FakeExecutionWorkspace(
+    {
+      branchName: "feature/opentop-ticket-reopen-pr-1",
+      logs: ["Prepared feature branch."]
+    },
+    {
+      currentBranch: "feature/opentop-ticket-reopen-pr-1",
+      isClean: false,
+      changedFiles: ["src/provider.ts"]
+    },
+    {
+      totalFiles: 1,
+      totalAdditions: 3,
+      totalDeletions: 1,
+      files: [
+        {
+          path: "src/provider.ts",
+          changeType: "modified",
+          additions: 3,
+          deletions: 1,
+          patch: "@@ -1 +1 @@\n-old\n+new"
+        }
+      ]
+    }
+  );
+  const executionProvider = new FakeExecutionProvider({
+    success: true,
+    summary: "Generated local changes.",
+    artifactKind: "workspace_changes",
+    changedFiles: [],
+    logs: ["Provider changed files."]
+  });
+
+  const firstRun = await startExecutionForStoredTicket(
+    ticketRepository,
+    promptReviewRepository,
+    planArtifactRepository,
+    executionRepository,
+    checkRunRepository,
+    executionWorkspace,
+    executionProvider,
+    createConfig("implement_only"),
+    baseProjectContext,
+    ticket.id,
+    {
+      currentBranch: "feature/reopen-pr",
+      isClean: true,
+      changedFiles: []
+    }
+  );
+  assert.equal(firstRun.status, "succeeded");
+  await approveExecutionReview(executionRepository, checkRunRepository, requireExecutionId(firstRun));
+  await createDraftPullRequestForExecution(
+    ticketRepository,
+    executionRepository,
+    checkRunRepository,
+    createConfig("implement_only"),
+    {
+      ...baseProjectContext,
+      pullRequestTemplate: "# Summary\n\n# Checks"
+    },
+    new FakePullRequestService(),
+    requireExecutionId(firstRun)
+  );
+  await reopenStoredTicket(ticketRepository, executionRepository, createConfig("implement_only"), ticket.id);
+
+  const followUpRun = await startExecutionForStoredTicket(
+    ticketRepository,
+    promptReviewRepository,
+    planArtifactRepository,
+    executionRepository,
+    checkRunRepository,
+    executionWorkspace,
+    executionProvider,
+    createConfig("implement_only"),
+    baseProjectContext,
+    ticket.id,
+    {
+      currentBranch: "feature/reopen-pr",
+      isClean: true,
+      changedFiles: []
+    }
+  );
+
+  assert.notEqual(followUpRun.status, "blocked");
+});
+
 test("startExecutionForStoredTicket blocks review-only executions until the latest prompt is approved", async () => {
   const ticket = createTicket("ticket-3", "Review gated run");
   const ticketRepository = new InMemoryTicketRepository(ticket);

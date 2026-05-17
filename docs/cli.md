@@ -96,6 +96,13 @@ opentop providers doctor --json
 opentop providers setup
 ```
 
+Check whether the target repository is ready for GitHub handoff:
+
+```powershell
+gh auth status
+git remote -v
+```
+
 ## Ticket Commands
 
 Create a local ticket:
@@ -196,6 +203,18 @@ opentop config set execution.defaultBranchPolicy reuse-current --scope user
 - provider command or API-key env
 - base URL or OAuth metadata
 - default `cheap`, `strong`, and `local` model tiers
+
+`opentop dashboard` is also the main way to verify GitHub handoff status. The Web Settings page shows whether OpenTop is using:
+
+- `GITHUB_TOKEN`
+- `GH_TOKEN`
+- `gh` CLI auth
+
+and whether it can:
+
+- create draft PRs
+- read live PR state
+- mark draft PRs ready for review
 
 Root verification command:
 

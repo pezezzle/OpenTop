@@ -2,7 +2,7 @@
 
 **Open Ticket Orchestrator Platform**
 
-OpenTop is an open-source control plane for agentic software development. It turns software tickets into controlled AI executions by analyzing the work, selecting an agent profile and model route, running the agent in an isolated branch, and producing reviewable output such as logs, checks, diffs, and draft pull requests.
+OpenTop is an open-source control plane for agentic software development. It turns software tickets into controlled AI executions by analyzing the work, selecting an agent profile and model route, running the agent in an isolated branch, and producing reviewable output such as logs, checks, diffs, and optional draft pull requests.
 
 ```text
 Ticket
@@ -25,7 +25,8 @@ This repository is in the first `0.1` scaffold phase. The current focus is a loc
 - Suggest an agent profile, model tier, and execution mode.
 - Require approval for risky work.
 - Run agent executions through provider adapters.
-- Create isolated branches and draft pull requests.
+- Create isolated branches and optional draft pull requests.
+- Let humans finish tickets either manually or through GitHub handoff.
 - Keep logs, changed files, and check results visible.
 
 ## Repository Layout
@@ -167,6 +168,25 @@ x              run execution
 
 OpenTop treats the Web app as the primary user interface. The CLI remains for setup, automation, and power-user workflows.
 
+## Daily Workflow
+
+The current intended daily flow is:
+
+```text
+ticket
+-> classify
+-> prompt / plan review when needed
+-> run execution
+-> review diff, checks, and risk
+-> approve execution
+-> either:
+   - create draft PR
+   - mark ticket done, PR handled manually
+   - mark ticket done without PR
+```
+
+If OpenTop itself creates the draft PR, it closes the ticket until someone explicitly reopens it.
+
 ## Provider Checks
 
 OpenTop now inspects configured providers before you rely on them operationally:
@@ -176,7 +196,7 @@ opentop providers doctor
 opentop providers setup
 ```
 
-The Web settings page also shows provider command availability, routed model tiers, and compatibility warnings. For example, a `codex-cli` setup that routes `cheap` to `gpt-5.3` will be flagged because many ChatGPT-backed Codex accounts reject non-Codex model IDs.
+The Web settings page also shows provider command availability, routed model tiers, compatibility warnings, and GitHub handoff status. It can tell you whether OpenTop is using `GITHUB_TOKEN`, `GH_TOKEN`, or a local `gh` CLI session for PR work.
 
 Providers now separate:
 
@@ -186,11 +206,27 @@ provider type
 + model tier mapping
 ```
 
-OpenTop is provider-neutral. Codex CLI is supported as a local external CLI adapter, but it is not the foundation of the architecture. API-backed providers, local CLIs, local model servers, and custom commands should all fit behind the same provider boundary.
+OpenTop is provider-neutral. `codex-cli` is the preferred runtime path for ChatGPT/Codex subscription access today, but it is still just one provider adapter. API-backed providers, local CLIs, local model servers, and custom commands should all fit behind the same provider boundary.
 
 Project config should store only non-secret provider metadata such as provider type, connection method, base URL, and model routing. API keys, OAuth tokens, refresh tokens, and user-specific credentials belong in environment variables, user scope, or a secret store.
 
-API-key provider runtimes are the first durable provider target. OpenTop includes an OpenAI-compatible API-key runtime baseline for providers such as OpenAI, DeepSeek, and OpenRouter. OpenTop also supports real PKCE-based OAuth connect flows for `openrouter-api` and `openai-codex`, with credentials stored in `~/.opentop/auth/` instead of project config. Today, `openrouter-api` is a supported hosted OAuth runtime path, while `openai-codex` is intentionally treated as a connected-but-non-runtime path until OpenTop grows a more native Codex integration. Providers that do not yet have a real OAuth path are shown as unsupported rather than half-implemented.
+API-key provider runtimes are the first durable hosted-provider target. OpenTop includes an OpenAI-compatible API-key runtime baseline for providers such as OpenAI, DeepSeek, and OpenRouter. OpenTop also supports real PKCE-based OAuth connect flows for `openrouter-api` and `openai-codex`, with credentials stored in `~/.opentop/auth/` instead of project config. Today, `openrouter-api` is a supported hosted OAuth runtime path, while `openai-codex` is intentionally treated as a connected-but-non-runtime path until OpenTop grows a more native Codex integration. Providers that do not yet have a real OAuth path are shown as unsupported rather than half-implemented.
+
+## GitHub Handoff
+
+OpenTop can hand an approved execution off to GitHub in three ways:
+
+- create a draft PR from the execution page
+- mark the ticket done and handle the PR manually
+- mark the ticket done without a PR
+
+For GitHub connectivity, OpenTop currently uses one of:
+
+- `GITHUB_TOKEN`
+- `GH_TOKEN`
+- a locally authenticated `gh` CLI session
+
+There is no separate in-product GitHub OAuth button yet. OpenTop detects the available GitHub auth path automatically and shows it in Settings.
 
 Example project config:
 

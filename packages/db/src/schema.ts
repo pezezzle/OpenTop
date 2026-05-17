@@ -11,6 +11,7 @@ export const ticketsTable = sqliteTable("tickets", {
   resolutionType: text("resolution_type"),
   resolutionNote: text("resolution_note"),
   resolvedAt: text("resolved_at"),
+  reopenedAt: text("reopened_at"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull()
 });

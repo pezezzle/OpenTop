@@ -21,6 +21,10 @@ Fields:
 - `description`
 - `labels`
 - `status`
+- `resolutionType`
+- `resolutionNote`
+- `resolvedAt`
+- `reopenedAt`
 - optional `classification`
 
 Supported sources:
@@ -49,6 +53,14 @@ ready
 running
 review
 done
+```
+
+Current resolution types used by the Web flow:
+
+```text
+done
+manual_pr
+no_pr
 ```
 
 ## Classification
@@ -258,6 +270,9 @@ rejected
 Current behavior:
 
 - successful workspace-changing runs are stored as `reviewStatus: pending`
+- approved executions do not close the ticket by themselves
+- OpenTop can either store a manual resolution on the ticket or attach a GitHub pull request to the execution
+- when OpenTop itself creates the PR, the ticket is closed until it is reopened
 - `output_ready` and other non-code-changing runs stay `reviewStatus: not_required`
 - approved executions can move the ticket workflow to `Done`
 - rejected executions remain review items until superseded or replaced
