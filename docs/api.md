@@ -444,10 +444,11 @@ This route:
 
 - renders the PR body from `.opentop/templates/pull-request.md`
 - pushes the execution branch to `origin`
-- creates a GitHub draft PR using `GITHUB_TOKEN` or `GH_TOKEN`
+- creates a GitHub draft PR using either `GITHUB_TOKEN` / `GH_TOKEN` or an authenticated `gh` CLI session
 - stores the resulting PR metadata back on the execution
 
 Draft PR creation is optional. A human can instead resolve the ticket manually through `/tickets/:ticketId/resolve`.
+When this route succeeds, OpenTop also marks the underlying ticket as `done` with an internal resolution marker so the workflow does not keep accepting new executions until the ticket is reopened.
 
 ### `POST /classify`
 

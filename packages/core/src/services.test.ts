@@ -819,6 +819,65 @@ test("createDraftPullRequestForExecution renders a draft PR after approved execu
   assert.equal(pullRequestService.requests.length, 1);
   assert.match(pullRequestService.requests[0]?.body ?? "", /OpenTop execution/);
   assert.match(pullRequestService.requests[0]?.body ?? "", /build: passed/);
+  const resolvedTicket = await ticketRepository.findById(ticket.id);
+  assert.equal(resolvedTicket?.status, "done");
+  assert.equal(resolvedTicket?.resolutionType, "done");
+  assert.match(resolvedTicket?.resolutionNote ?? "", /Draft PR #42 created/);
+});
+
+test("startExecutionForStoredTicket blocks closed tickets until they are reopened", async () => {
+  const ticket = createTicket("ticket-closed-1", "Closed ticket cannot run again");
+  const ticketRepository = new InMemoryTicketRepository({
+    ...ticket,
+    status: "done",
+    resolutionType: "done",
+    resolutionNote: "Draft PR already created.",
+    resolvedAt: "2026-01-01T00:00:00.000Z"
+  });
+  const promptReviewRepository = new InMemoryPromptReviewRepository();
+  const planArtifactRepository = new InMemoryPlanArtifactRepository();
+  const executionRepository = new InMemoryExecutionRepository();
+  const checkRunRepository = new InMemoryCheckRunRepository();
+  const executionWorkspace = new FakeExecutionWorkspace(
+    {
+      branchName: "feature/opentop-ticket-closed-1",
+      logs: ["Prepared feature branch."]
+    },
+    {
+      currentBranch: "feature/opentop-ticket-closed-1",
+      isClean: true,
+      changedFiles: []
+    }
+  );
+  const executionProvider = new FakeExecutionProvider({
+    success: true,
+    summary: "No-op.",
+    artifactKind: "workspace_changes",
+    changedFiles: [],
+    logs: []
+  });
+
+  const runResult = await startExecutionForStoredTicket(
+    ticketRepository,
+    promptReviewRepository,
+    planArtifactRepository,
+    executionRepository,
+    checkRunRepository,
+    executionWorkspace,
+    executionProvider,
+    createConfig("implement_only"),
+    baseProjectContext,
+    ticket.id,
+    {
+      currentBranch: "feature/provider-work",
+      isClean: true,
+      changedFiles: []
+    }
+  );
+
+  assert.equal(runResult.status, "blocked");
+  assert.equal(runResult.blocker, "ticket_closed");
+  assert.match(runResult.reason, /Reopen it before starting a new execution/);
 });
 
 test("resolveStoredTicket marks an approved execution as done for manual PR handling", async () => {

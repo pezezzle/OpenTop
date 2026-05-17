@@ -238,7 +238,7 @@ function getExecutionActionCenter(input: {
     return {
       tone: "success",
       title: "Draft pull request is ready",
-      body: "This execution has already moved into the pull-request stage. Use the GitHub draft as the handoff point for downstream review."
+      body: "This execution has already moved into the pull-request stage. Use the GitHub draft as the handoff point for downstream review, then mark it ready on GitHub before merging."
     };
   }
 
@@ -372,14 +372,17 @@ export default async function ExecutionDetailPage({
 
         {query.pullRequest === "created" ? (
           <section className="notice notice-success">
-            Draft pull request created successfully.
+            Draft pull request created successfully. It will stay unmergeable until you mark it ready for review on GitHub.
           </section>
         ) : null}
 
         {query.pullRequest === "blocked" ? (
           <section className="notice notice-warning">
-            {query.reason?.includes("GITHUB_TOKEN") || query.reason?.includes("GH_TOKEN")
-              ? "Draft PR creation is blocked until GITHUB_TOKEN or GH_TOKEN is available to the API process."
+            {query.reason?.includes("GITHUB_TOKEN") ||
+            query.reason?.includes("GH_TOKEN") ||
+            query.reason?.includes("gh auth login") ||
+            query.reason?.includes("GitHub CLI session")
+              ? "Draft PR creation is blocked until OpenTop can use either GITHUB_TOKEN / GH_TOKEN or an authenticated `gh` CLI session."
               : query.reason ?? "Draft PR creation is currently blocked."}
           </section>
         ) : null}
@@ -589,6 +592,9 @@ export default async function ExecutionDetailPage({
                 </a>
                 <p className="subline">
                   {execution.pullRequest.headBranch} {"->"} {execution.pullRequest.baseBranch}
+                </p>
+                <p className="notice notice-info">
+                  Draft pull requests cannot be merged yet. Open the PR on GitHub and mark it ready for review when you want it to become mergeable.
                 </p>
               </div>
             ) : execution.reviewStatus === "approved" ? (

@@ -179,7 +179,7 @@ function getTicketActionCenter(input: {
         ? "This ticket is closed in OpenTop and the pull request will be handled manually."
         : detail.ticket.resolutionType === "no_pr"
           ? "This ticket is closed in OpenTop without a pull-request follow-up."
-          : "This ticket is marked done in OpenTop.";
+          : "This ticket is closed in OpenTop because a draft pull request was already created.";
 
     return {
       tone: "success",
@@ -286,7 +286,7 @@ function formatResolutionType(value: "done" | "manual_pr" | "no_pr" | undefined)
     case "no_pr":
       return "Done without PR";
     case "done":
-      return "Closed";
+      return "PR created in OpenTop";
     default:
       return "Not resolved";
   }

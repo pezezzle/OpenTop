@@ -71,7 +71,7 @@ Shows:
 - workflow progress strip from prompt through PR
 - summary cards for task type, routing, and latest run
 - labels, workflow stage, and suggested branch name
-- explicit ticket-resolution status, note, and timestamp when work is manually closed
+- explicit ticket-resolution status, note, and timestamp when work is manually closed or auto-closed after PR creation
 - classification and routing rationale
 - prompt preview
 - prompt review status and approval requirement
@@ -99,6 +99,8 @@ The Web UI intentionally exposes only two explicit close modes in the ticket wor
 - `Done without PR`
 
 The older generic `done` resolution value is still tolerated internally for compatibility, but it is no longer presented as a primary user choice.
+
+When OpenTop itself creates a draft pull request, the ticket is automatically moved to `Done`. To continue work after that point, reopen the ticket first.
 
 ### Execution Detail
 
@@ -128,7 +130,9 @@ Shows:
 - prompt snapshot
 - execution logs
 - draft pull-request creation and stored draft PR output for approved executions
-- non-crashing blocked PR notice when GitHub credentials are missing
+- non-crashing blocked PR notice when neither API tokens nor an authenticated `gh` CLI session are available
+
+OpenTop creates **draft** pull requests on purpose. They are intended as a handoff checkpoint and remain unmergeable until a human marks them ready for review on GitHub.
 
 Approved executions can now be treated as ready for downstream work without forcing PR creation inside OpenTop. The ticket itself is only considered `Done` after an explicit resolution action on the ticket page.
 

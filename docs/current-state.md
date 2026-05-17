@@ -65,6 +65,7 @@ create ticket
 -> review output and trigger follow-up execution when needed
 -> approve or reject code-changing executions
 -> either resolve the ticket manually or create a draft pull request
+-> if a draft PR is created by OpenTop, treat the ticket as closed until it is reopened
 ```
 
 The Web UI now shows the same stored data:
@@ -192,7 +193,7 @@ This state directory is ignored by Git and should not be committed.
 
 Sequential worker-plan execution uses Git worktrees outside the target repository under a sibling `.opentop-worktrees/` directory so independent work-item branches can accumulate changes without dirtying the root working tree.
 
-Successful workspace-changing executions no longer count as effectively done on their own. They enter review with stored check runs, diff summaries, and a `pending` execution review status until a human explicitly approves or rejects them. Once approved, OpenTop can either mark the ticket as done through an explicit manual-resolution step or push the execution branch and open a GitHub draft pull request using `GITHUB_TOKEN` or `GH_TOKEN`.
+Successful workspace-changing executions no longer count as effectively done on their own. They enter review with stored check runs, diff summaries, and a `pending` execution review status until a human explicitly approves or rejects them. Once approved, OpenTop can either mark the ticket as done through an explicit manual-resolution step or push the execution branch and open a GitHub draft pull request using `GITHUB_TOKEN`, `GH_TOKEN`, or an authenticated `gh` CLI session. When OpenTop creates that draft PR itself, it also closes the ticket so no further executions start until someone explicitly reopens it.
 
 The global `opentop` command is currently a local development link to the built CLI in this repo.
 

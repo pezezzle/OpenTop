@@ -611,7 +611,7 @@ export type ExecutionRunResult =
       status: "blocked";
       executionPlan: ExecutionPlan;
       branchResolution: ExecutionBranchResolution;
-      blocker: "branch_policy" | "prompt_review" | "plan_review" | "provider_runtime";
+      blocker: "branch_policy" | "prompt_review" | "plan_review" | "provider_runtime" | "ticket_closed";
       reason: string;
       promptReview?: PromptReview;
       planArtifact?: PlanArtifact;

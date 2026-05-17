@@ -800,6 +800,18 @@ export async function startExecutionForStoredTicket(
     branchName: branchResolution.branchName ?? "none"
   };
 
+  if (context.ticket.status === "done") {
+    return {
+      status: "blocked",
+      executionPlan,
+      branchResolution,
+      blocker: "ticket_closed",
+      reason: "This ticket is closed. Reopen it before starting a new execution.",
+      promptReview,
+      planArtifact: context.latestPlanArtifact
+    };
+  }
+
   if (branchResolution.decision === "blocked") {
     return {
       status: "blocked",
@@ -1187,6 +1199,12 @@ export async function createDraftPullRequestForExecution(
     headBranch: execution.branchName,
     title,
     body
+  });
+  await ticketRepository.update(ticket.id, {
+    status: "done",
+    resolutionType: "done",
+    resolutionNote: `Draft PR #${pullRequest.number ?? "?"} created in ${pullRequest.repositoryFullName}.`,
+    resolvedAt: new Date().toISOString()
   });
 
   return executionRepository.update(execution.id, {
