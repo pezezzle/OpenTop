@@ -63,6 +63,18 @@ Response includes:
 - project value
 - user value
 
+### `GET /context`
+
+Returns resolved context settings and available context profiles.
+
+Response includes:
+
+- effective context settings
+- project context settings
+- user context settings
+- active loaded profiles
+- available learned and user profiles found under `~/.opentop`
+
 ### `GET /providers`
 
 Returns configured providers enriched with:
@@ -73,6 +85,7 @@ Returns configured providers enriched with:
 - routed model tiers
 - runtime availability
 - CLI version when detectable
+- OAuth connection state when applicable
 - warnings or errors about provider compatibility
 
 ### `PUT /providers/:providerId`
@@ -89,6 +102,34 @@ Request fields:
 - `baseUrl`
 - `modelMappings`
 
+### `POST /providers/:providerId/oauth/start`
+
+Starts an interactive OAuth connect flow for an OAuth-configured provider and returns:
+
+- `authorizationUrl`
+- `callbackUrl`
+- `sessionId`
+
+### `POST /providers/:providerId/oauth/exchange`
+
+Completes the OAuth flow after the local Web callback receives a provider code.
+
+Request fields:
+
+- `sessionId`
+- `code`
+- `error`
+- `errorDescription`
+
+### `POST /providers/:providerId/oauth/disconnect`
+
+Removes stored user-scope OAuth credentials for the provider in the current repository context.
+
+OpenTop currently uses these endpoints for:
+
+- `openrouter-api` as a supported hosted OAuth runtime path
+- `openai-codex` as a real connect/disconnect path that is intentionally not treated as an execution runtime
+
 ### `PUT /config`
 
 Updates supported config values.
@@ -97,6 +138,7 @@ Currently supported key:
 
 ```text
 execution.defaultBranchPolicy
+context.profileMode
 ```
 
 Supported values:
@@ -155,6 +197,13 @@ Returns a ticket detail payload:
 - classification
 - execution plan
 - built prompt
+- current prompt review
+- prompt review history
+- latest plan artifact
+- plan artifact history
+- latest worker plan
+- worker-plan history
+- work items for the latest ticket decomposition
 - executions for the ticket
 
 ### `POST /tickets/:ticketId/classify`
@@ -164,6 +213,125 @@ Classifies a stored ticket and returns classification plus execution plan.
 ### `GET /tickets/:ticketId/prompt`
 
 Builds and returns the controlled prompt for a stored ticket.
+
+The prompt payload includes:
+
+- `prompt`
+- `sources`
+- `contextSummary`
+- `promptReview`
+
+`contextSummary` shows which profiles and sections influenced the generated prompt and how much of the prompt budget was used.
+
+### `POST /tickets/:ticketId/prompt/regenerate`
+
+Creates a new prompt-review version for the ticket and returns it.
+
+Optional request field:
+
+```json
+{
+  "reviewerComment": "Refresh after updating context settings."
+}
+```
+
+### `POST /tickets/:ticketId/prompt/:promptReviewId/approve`
+
+Approves the latest prompt-review version for a ticket.
+
+Optional request field:
+
+```json
+{
+  "reviewerComment": "Looks good for execution."
+}
+```
+
+### `POST /tickets/:ticketId/prompt/:promptReviewId/reject`
+
+Rejects the latest prompt-review version for a ticket.
+
+Optional request field:
+
+```json
+{
+  "reviewerComment": "Needs a clearer migration plan."
+}
+```
+
+### `GET /tickets/:ticketId/plan`
+
+Returns the latest plan artifact plus the stored plan-history list for the ticket.
+
+### `POST /tickets/:ticketId/plan/regenerate`
+
+Runs a fresh planning pass and stores a new draft plan artifact.
+
+Optional request field:
+
+```json
+{
+  "reviewerComment": "Regenerate after revising assumptions."
+}
+```
+
+### `POST /tickets/:ticketId/plan/:planArtifactId/approve`
+
+Approves the latest plan version for the ticket.
+
+### `POST /tickets/:ticketId/plan/:planArtifactId/reject`
+
+Rejects the latest plan version for the ticket.
+
+### `GET /tickets/:ticketId/worker-plan`
+
+Returns the latest worker plan, worker-plan history, and stored work items for the ticket.
+
+### `POST /tickets/:ticketId/worker-plan/generate`
+
+Generates a new worker plan from the latest approved plan artifact.
+
+Optional request field:
+
+```json
+{
+  "reviewerComment": "Split the approved plan into implementation slices."
+}
+```
+
+### `GET /work-items/:workItemId`
+
+Returns one stored work item.
+
+### `POST /tickets/:ticketId/worker-plan/run`
+
+Runs the latest non-superseded worker plan for a ticket sequentially across all ready work items.
+
+Response includes:
+
+- updated `workerPlan`
+- refreshed `workItems`
+- linked `executions`
+- orchestration `summary`
+- `integrationSummary`
+- `integrationIssues`
+
+### `POST /work-items/:workItemId/run`
+
+Runs one stored work item and returns the updated work item, worker plan, and linked execution when one was created.
+
+### `PUT /context`
+
+Updates context settings for `project` or `user` scope.
+
+Request fields:
+
+- `learnedProfiles`
+- `userProfiles`
+- `profileMode`
+- `maxPromptProfileWords`
+- `maxProfileSections`
+- `scope`
 
 ### `POST /tickets/:ticketId/run`
 
@@ -179,13 +347,83 @@ Optional request field:
 
 Current behavior creates an execution record, applies branch policy, prepares or reuses the working branch when needed, and runs the configured provider synchronously.
 
+If the ticket requires prompt approval, the API returns a `blocked` result until the latest prompt-review version is approved.
+
+If the ticket is in a plan-first workflow, the API runs a planning pass first and stores a plan artifact. `plan_then_implement` execution is blocked until the latest plan artifact is approved.
+
+Blocked execution responses include:
+
+- `blocker`
+- `reason`
+- current `promptReview`
+- current `planArtifact`
+
+When a provider produces reviewable output without changing local files, the API returns an execution with status `output_ready` and `artifactKind: "review_output"`.
+
+When a provider changes local files successfully, the API also stores and returns:
+
+- `reviewStatus`
+- `diffSummary`
+- `riskSummary`
+
 ### `GET /executions`
 
 Lists stored executions.
 
 ### `GET /executions/:executionId`
 
-Returns one stored execution.
+Returns one stored execution plus its recorded check runs.
+
+Response includes:
+
+- `execution`
+- `checkRuns`
+
+### `POST /executions/:executionId/review/approve`
+
+Approves a successful workspace-changing execution.
+
+Optional request fields:
+
+```json
+{
+  "reviewerComment": "Looks good after checking the diff.",
+  "overrideFailedChecks": false
+}
+```
+
+Failed checks block approval unless `overrideFailedChecks` is set to `true`.
+
+### `POST /executions/:executionId/review/reject`
+
+Rejects a successful workspace-changing execution.
+
+Optional request field:
+
+```json
+{
+  "reviewerComment": "Needs another pass before this should count as done."
+}
+```
+
+### `POST /executions/:executionId/pull-request`
+
+Creates a GitHub draft pull request for one approved workspace-changing execution.
+
+Optional request field:
+
+```json
+{
+  "overrideFailedChecks": false
+}
+```
+
+This route:
+
+- renders the PR body from `.opentop/templates/pull-request.md`
+- pushes the execution branch to `origin`
+- creates a GitHub draft PR using `GITHUB_TOKEN` or `GH_TOKEN`
+- stores the resulting PR metadata back on the execution
 
 ### `POST /classify`
 
@@ -199,4 +437,4 @@ The API does not yet:
 - run checks
 - create draft PRs
 - import external tickets
-- update provider commands or model tiers through the API
+- execute work items in parallel

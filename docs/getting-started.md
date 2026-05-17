@@ -12,6 +12,7 @@
 ```bash
 npm install -g pnpm@9.15.0
 pnpm install
+pnpm verify
 ```
 
 ## Build
@@ -27,7 +28,7 @@ OpenTop is the tool in this repository. The repository you want it to orchestrat
 OpenTop works against the current working directory by default. Use `--repo` when you want to orchestrate a different repository, such as a sandbox:
 
 ```bash
-pnpm cli:dev -- --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox status
+pnpm cli:dev --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox status
 ```
 
 ## Check Status
@@ -113,20 +114,10 @@ pnpm cli:dev -- executions show 1 --json
 
 To expose a real local `opentop` command on your machine, install or link it from the OpenTop repository that contains the CLI source code.
 
-Windows:
+All supported local development platforms:
 
 ```bash
 pnpm cli:link
-```
-
-`pnpm cli:link` currently supports Windows only.
-
-macOS / Linux:
-
-```bash
-cd apps/cli
-npm link
-cd ../..
 ```
 
 Then you can call:
@@ -241,3 +232,9 @@ The Web app is the primary OpenTop interface for daily use. Prefer the Web board
 ## Configuration
 
 OpenTop reads `.opentop/opentop.yml` from the working directory. The starter config includes provider definitions, model tiers, agent profiles, routing rules, and build/test commands.
+
+## Next Useful Docs
+
+- [Provider Recipes](provider-recipes.md)
+- [Database Migrations](database-migrations.md)
+- [Security Checklist](security-checklist.md)

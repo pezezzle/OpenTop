@@ -19,21 +19,35 @@ import {
   getExecution,
   listTickets,
   listExecutions,
+  listExecutionsForStoredWorkerPlan,
   inspectConfiguredProviders,
+  listWorkItemsForStoredTicket,
+  listWorkerPlansForStoredTicket,
   loadOpenTopConfig,
   loadOpenTopProjectContext,
   saveProviderSetup,
   startExecutionForStoredTicket,
+  getWorkItem,
   setConfigValue,
   stringifyStarterConfig,
   planExecutionForStoredTicket,
+  runWorkItemForStoredTicket,
+  runWorkerPlanForStoredTicket,
   type OpenTopConfigScope,
   type ExecutionBranchPolicy,
   type ProviderConnectionMethod,
   type Ticket
 } from "@opentop/core";
-import { createSqliteExecutionRepository, createSqliteTicketRepository } from "@opentop/db";
-import { getRepositoryStatus, GitExecutionWorkspace } from "@opentop/git";
+import {
+  createSqliteCheckRunRepository,
+  createSqliteExecutionRepository,
+  createSqlitePlanArtifactRepository,
+  createSqlitePromptReviewRepository,
+  createSqliteTicketRepository,
+  createSqliteWorkItemRepository,
+  createSqliteWorkerPlanRepository
+} from "@opentop/db";
+import { ensureBranchWorktree, getRepositoryStatus, GitExecutionWorkspace } from "@opentop/git";
 import { createProviderAdapter, inspectProviderRuntime } from "@opentop/providers";
 import { startDashboard } from "./dashboard.js";
 
@@ -48,6 +62,11 @@ const shellHelpItems = [
   ],
   ["executions list [--json]", "List locally stored executions"],
   ["executions show <id> [--json]", "Show one stored execution"],
+  ["worker-plans show <ticketId> [--json]", "Show the latest worker plan and work items for one ticket"],
+  ["worker-plans run <ticketId> [--json]", "Run ready work items sequentially for one ticket"],
+  ["work-items list <ticketId> [--json]", "List stored work items for one ticket"],
+  ["work-items show <id> [--json]", "Show one stored work item"],
+  ["work-items run <id> [--json]", "Run one stored work item"],
   ["providers list [--json]", "Inspect configured providers"],
   ["providers doctor [--json]", "Show provider health and compatibility warnings"],
   ["providers setup", "Interactive provider and model-tier setup"],
@@ -253,6 +272,8 @@ ticketsCommand
   });
 
 const executionsCommand = program.command("executions").description("Inspect locally stored OpenTop executions");
+const workerPlansCommand = program.command("worker-plans").description("Inspect stored worker-plan versions");
+const workItemsCommand = program.command("work-items").description("Inspect stored worker items");
 const providersCommand = program.command("providers").description("Inspect configured OpenTop providers");
 
 executionsCommand
@@ -275,6 +296,208 @@ executionsCommand
 
     for (const execution of executions) {
       console.log(`#${execution.id} [${execution.status}] ticket=${execution.ticketId} branch=${execution.branchName}`);
+    }
+  });
+
+workerPlansCommand
+  .command("show")
+  .description("Show the latest worker plan plus work items for one ticket")
+  .argument("<ticketId>", "Ticket ID")
+  .option("--json", "Print the worker plan and work items as JSON")
+  .action(async (ticketId: string, options: { json?: boolean }) => {
+    const [workerPlanRepository, workItemRepository] = await Promise.all([
+      createSqliteWorkerPlanRepository({ startDirectory: getTargetRepositoryPath() }),
+      createSqliteWorkItemRepository({ startDirectory: getTargetRepositoryPath() })
+    ]);
+    const [workerPlans, workItems] = await Promise.all([
+      listWorkerPlansForStoredTicket(workerPlanRepository, ticketId),
+      listWorkItemsForStoredTicket(workItemRepository, ticketId)
+    ]);
+    const workerPlan = workerPlans[0] ?? null;
+
+    if (options.json) {
+      console.log(JSON.stringify({ workerPlan, workerPlans, workItems }, null, 2));
+      return;
+    }
+
+    if (!workerPlan) {
+      console.log(`No worker plan found for ticket ${ticketId}.`);
+      return;
+    }
+
+    console.log(`Worker plan ${workerPlan.id} (v${workerPlan.version})`);
+    console.log(`Status: ${workerPlan.status}`);
+    console.log(`Ticket: ${workerPlan.ticketId}`);
+    console.log(`Source plan artifact: ${workerPlan.sourcePlanArtifactId}`);
+    console.log(`Summary: ${workerPlan.summary ?? "(none)"}`);
+    console.log("");
+    console.log("Work items:");
+
+    for (const workItem of workItems.filter((entry) => entry.workerPlanId === workerPlan.id)) {
+      console.log(
+        `- ${workItem.id} [${workItem.status}] ${workItem.title} :: ${workItem.role} :: ${workItem.suggestedProviderId}/${workItem.suggestedModelId}`
+      );
+    }
+  });
+
+workerPlansCommand
+  .command("run")
+  .description("Run ready work items sequentially for one ticket")
+  .argument("<ticketId>", "Ticket ID")
+  .option("--json", "Print the worker-plan run result as JSON")
+  .action(async (ticketId: string, options: { json?: boolean }) => {
+    const targetDirectory = getTargetRepositoryPath();
+    const [config, projectContext, ticketRepository, planArtifactRepository, workerPlanRepository, workItemRepository, executionRepository, checkRunRepository] =
+      await Promise.all([
+        loadOpenTopConfig(undefined, targetDirectory),
+        loadOpenTopProjectContext(targetDirectory),
+        createSqliteTicketRepository({ startDirectory: targetDirectory }),
+        createSqlitePlanArtifactRepository({ startDirectory: targetDirectory }),
+        createSqliteWorkerPlanRepository({ startDirectory: targetDirectory }),
+        createSqliteWorkItemRepository({ startDirectory: targetDirectory }),
+        createSqliteExecutionRepository({ startDirectory: targetDirectory }),
+        createSqliteCheckRunRepository({ startDirectory: targetDirectory })
+      ]);
+
+    const result = await runWorkerPlanForStoredTicket(
+      ticketRepository,
+      planArtifactRepository,
+      workerPlanRepository,
+      workItemRepository,
+      executionRepository,
+      checkRunRepository,
+      config,
+      projectContext,
+      ticketId,
+      {
+        providerForWorkItem: (workItem) =>
+          createProviderAdapter(workItem.suggestedProviderId, getProvider(config, workItem.suggestedProviderId), {
+            repositoryPath: targetDirectory
+          }),
+        prepareWorkspace: (input) => prepareWorkItemWorkspace(targetDirectory, input)
+      }
+    );
+
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    console.log(`Worker plan ${result.workerPlan.id} -> ${result.status}`);
+    console.log(result.summary);
+    console.log(`Integration: ${result.integrationSummary}`);
+
+    if (result.integrationIssues.length > 0) {
+      console.log("");
+      console.log("Integration issues:");
+      for (const issue of result.integrationIssues) {
+        console.log(`- ${issue}`);
+      }
+    }
+  });
+
+workItemsCommand
+  .command("list")
+  .description("List stored work items for one ticket")
+  .argument("<ticketId>", "Ticket ID")
+  .option("--json", "Print work items as JSON")
+  .action(async (ticketId: string, options: { json?: boolean }) => {
+    const repository = await createSqliteWorkItemRepository({ startDirectory: getTargetRepositoryPath() });
+    const workItems = await listWorkItemsForStoredTicket(repository, ticketId);
+
+    if (options.json) {
+      console.log(JSON.stringify(workItems, null, 2));
+      return;
+    }
+
+    if (workItems.length === 0) {
+      console.log(`No work items found for ticket ${ticketId}.`);
+      return;
+    }
+
+    for (const workItem of workItems) {
+      console.log(
+        `${workItem.id} [${workItem.status}] ${workItem.title} :: ${workItem.role} :: ${workItem.branchStrategy}`
+      );
+    }
+  });
+
+workItemsCommand
+  .command("show")
+  .description("Show one stored work item")
+  .argument("<workItemId>", "Work item ID")
+  .option("--json", "Print the work item as JSON")
+  .action(async (workItemId: string, options: { json?: boolean }) => {
+    const repository = await createSqliteWorkItemRepository({ startDirectory: getTargetRepositoryPath() });
+    const workItem = await getWorkItem(repository, workItemId);
+
+    if (options.json) {
+      console.log(JSON.stringify(workItem, null, 2));
+      return;
+    }
+
+    console.log(`Work item ${workItem.id}`);
+    console.log(`Status: ${workItem.status}`);
+    console.log(`Ticket: ${workItem.ticketId}`);
+    console.log(`Worker plan: ${workItem.workerPlanId}`);
+    console.log(`Title: ${workItem.title}`);
+    console.log(`Role: ${workItem.role}`);
+    console.log(`Mode: ${workItem.suggestedMode}`);
+    console.log(`Model: ${workItem.suggestedProviderId}/${workItem.suggestedModelId}`);
+    console.log(`Branch strategy: ${workItem.branchStrategy}`);
+    console.log(`Dependencies: ${workItem.dependsOn.join(", ") || "(none)"}`);
+    console.log(`Affected areas: ${workItem.affectedAreas.join(", ") || "(none)"}`);
+    console.log(`Review notes: ${workItem.reviewNotes.join(" ") || "(none)"}`);
+  });
+
+workItemsCommand
+  .command("run")
+  .description("Run one stored work item")
+  .argument("<workItemId>", "Work item ID")
+  .option("--json", "Print the work-item run result as JSON")
+  .action(async (workItemId: string, options: { json?: boolean }) => {
+    const targetDirectory = getTargetRepositoryPath();
+    const [config, projectContext, ticketRepository, planArtifactRepository, workerPlanRepository, workItemRepository, executionRepository, checkRunRepository] =
+      await Promise.all([
+        loadOpenTopConfig(undefined, targetDirectory),
+        loadOpenTopProjectContext(targetDirectory),
+        createSqliteTicketRepository({ startDirectory: targetDirectory }),
+        createSqlitePlanArtifactRepository({ startDirectory: targetDirectory }),
+        createSqliteWorkerPlanRepository({ startDirectory: targetDirectory }),
+        createSqliteWorkItemRepository({ startDirectory: targetDirectory }),
+        createSqliteExecutionRepository({ startDirectory: targetDirectory }),
+        createSqliteCheckRunRepository({ startDirectory: targetDirectory })
+      ]);
+
+    const result = await runWorkItemForStoredTicket(
+      ticketRepository,
+      planArtifactRepository,
+      workerPlanRepository,
+      workItemRepository,
+      executionRepository,
+      checkRunRepository,
+      config,
+      projectContext,
+      workItemId,
+      {
+        providerForWorkItem: (workItem) =>
+          createProviderAdapter(workItem.suggestedProviderId, getProvider(config, workItem.suggestedProviderId), {
+            repositoryPath: targetDirectory
+          }),
+        prepareWorkspace: (input) => prepareWorkItemWorkspace(targetDirectory, input)
+      }
+    );
+
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    console.log(`Work item ${result.workItem.id} -> ${result.status}`);
+    console.log(result.reason ?? result.workerPlan.integrationSummary ?? "No additional summary.");
+    if (result.execution) {
+      console.log(`Execution: ${result.execution.id} (${result.execution.branchName})`);
+      console.log(`Workspace: ${result.execution.workspacePath}`);
     }
   });
 
@@ -376,7 +599,10 @@ program
             await createSqliteTicketRepository({ startDirectory: targetDirectory }),
             config,
             projectContext,
-            ticketId
+            ticketId,
+            {
+              planArtifactRepository: await createSqlitePlanArtifactRepository({ startDirectory: targetDirectory })
+            }
           )
         : buildAgentPrompt({
             ticket: createManualTicket(options.title, options.description, options.labels),
@@ -400,21 +626,30 @@ program
   .option("--branch-policy <policy>", "Override branch policy for this run", parseExecutionBranchPolicy)
   .action(async (ticketId: string, options: { branchPolicy?: ExecutionBranchPolicy }) => {
     const targetDirectory = getTargetRepositoryPath();
-    const [config, projectContext, ticketRepository, executionRepository, repositoryState] = await Promise.all([
+    const [config, projectContext, ticketRepository, promptReviewRepository, planArtifactRepository, executionRepository, checkRunRepository, repositoryState] = await Promise.all([
       loadOpenTopConfig(undefined, targetDirectory),
       loadOpenTopProjectContext(targetDirectory),
       createSqliteTicketRepository({ startDirectory: targetDirectory }),
+      createSqlitePromptReviewRepository({ startDirectory: targetDirectory }),
+      createSqlitePlanArtifactRepository({ startDirectory: targetDirectory }),
       createSqliteExecutionRepository({ startDirectory: targetDirectory }),
+      createSqliteCheckRunRepository({ startDirectory: targetDirectory }),
       getRepositoryStatus(targetDirectory)
     ]);
     const executionPlan = await planExecutionForStoredTicket(ticketRepository, config, ticketId);
-    const provider = createProviderAdapter(
+    const provider = await createProviderAdapter(
       executionPlan.providerId,
-      getProvider(config, executionPlan.providerId)
+      getProvider(config, executionPlan.providerId),
+      {
+        repositoryPath: targetDirectory
+      }
     );
     const result = await startExecutionForStoredTicket(
       ticketRepository,
+      promptReviewRepository,
+      planArtifactRepository,
       executionRepository,
+      checkRunRepository,
       new GitExecutionWorkspace(targetDirectory),
       provider,
       config,
@@ -429,6 +664,9 @@ program
         JSON.stringify(
           {
             status: result.status,
+            blocker: result.blocker,
+            reason: result.reason,
+            promptReview: result.promptReview,
             branchResolution: result.branchResolution,
             executionPlan: result.executionPlan
           },
@@ -483,11 +721,18 @@ function parseLabels(labels: string): string[] {
 function toExecutionSummary(execution: {
   id: string;
   ticketId: string;
+  workerPlanId?: string;
+  workItemId?: string;
   profileId: string;
   providerId: string;
   modelId: string;
   status: string;
+  reviewStatus?: string;
+  pullRequest?: { url: string; number?: number };
+  pullRequestUrl?: string;
+  runKind: string;
   branchName: string;
+  workspacePath: string;
   changedFiles?: string[];
   logs?: string[];
   createdAt: string;
@@ -496,11 +741,18 @@ function toExecutionSummary(execution: {
   return {
     id: execution.id,
     ticketId: execution.ticketId,
+    workerPlanId: execution.workerPlanId,
+    workItemId: execution.workItemId,
     profileId: execution.profileId,
     providerId: execution.providerId,
     modelId: execution.modelId,
     status: execution.status,
+    reviewStatus: execution.reviewStatus,
+    pullRequest: execution.pullRequest,
+    pullRequestUrl: execution.pullRequestUrl,
+    runKind: execution.runKind,
     branchName: execution.branchName,
+    workspacePath: execution.workspacePath,
     changedFiles: execution.changedFiles ?? [],
     logs: execution.logs ?? [],
     createdAt: execution.createdAt,
@@ -519,8 +771,12 @@ function parseExecutionBranchPolicy(value: string): ExecutionBranchPolicy {
 function connectionMethodsForProviderType(providerType: string): ProviderConnectionMethod[] {
   switch (providerType) {
     case "codex-cli":
-      return ["local_cli", "oauth", "api_key"];
+      return ["local_cli"];
+    case "openai-codex":
+      return ["oauth"];
     case "openai-api":
+    case "deepseek-api":
+    case "anthropic-api":
     case "openrouter-api":
       return ["api_key", "oauth"];
     case "custom-shell":
@@ -534,7 +790,11 @@ function connectionMethodsForProviderType(providerType: string): ProviderConnect
 
 function defaultConnectionMethodForProviderType(providerType: string): ProviderConnectionMethod {
   switch (providerType) {
+    case "openai-codex":
+      return "oauth";
     case "openai-api":
+    case "deepseek-api":
+    case "anthropic-api":
     case "openrouter-api":
       return "api_key";
     case "custom-shell":
@@ -567,6 +827,14 @@ function defaultApiKeyEnvForProvider(providerType: string, connectionMethod: Pro
     return "OPENROUTER_API_KEY";
   }
 
+  if (providerType === "deepseek-api") {
+    return "DEEPSEEK_API_KEY";
+  }
+
+  if (providerType === "anthropic-api") {
+    return "ANTHROPIC_API_KEY";
+  }
+
   return "OPENAI_API_KEY";
 }
 
@@ -579,8 +847,16 @@ function defaultOauthProviderForType(providerType: string, connectionMethod: Pro
     return "chatgpt";
   }
 
+  if (providerType === "openai-codex") {
+    return "openai-codex";
+  }
+
   if (providerType === "openai-api") {
     return "openai";
+  }
+
+  if (providerType === "anthropic-api") {
+    return "anthropic";
   }
 
   return providerType.replace(/-api$/u, "");
@@ -595,6 +871,14 @@ function defaultBaseUrlForType(providerType: string, connectionMethod: ProviderC
     return "https://openrouter.ai/api/v1";
   }
 
+  if (providerType === "deepseek-api") {
+    return "https://api.deepseek.com/v1";
+  }
+
+  if (providerType === "anthropic-api") {
+    return "https://api.anthropic.com/v1";
+  }
+
   return undefined;
 }
 
@@ -607,8 +891,20 @@ function defaultModelForTier(providerType: string, tier: "cheap" | "strong" | "l
     return tier === "cheap" ? "gpt-5.4-mini" : "gpt-5.5";
   }
 
+  if (providerType === "openai-codex") {
+    return "gpt-5-codex";
+  }
+
   if (providerType === "openrouter-api") {
     return tier === "cheap" ? "openai/gpt-5.4-mini" : "openai/gpt-5.5";
+  }
+
+  if (providerType === "deepseek-api") {
+    return tier === "cheap" ? "deepseek-chat" : "deepseek-reasoner";
+  }
+
+  if (providerType === "anthropic-api") {
+    return "claude-sonnet";
   }
 
   if (providerType === "ollama") {
@@ -751,7 +1047,7 @@ async function runProviderSetupWizard(
   const providerType = await chooseFromList(
     rl,
     "Provider type",
-    ["codex-cli", "openai-api", "openrouter-api", "custom-shell", "ollama"],
+    ["codex-cli", "openai-codex", "openai-api", "deepseek-api", "openrouter-api", "anthropic-api", "custom-shell", "ollama"],
     "codex-cli"
   );
   const connectionMethod = await chooseFromList(
@@ -912,7 +1208,8 @@ async function printStatus(targetDirectory: string): Promise<void> {
   ]);
   const [tickets, executions] = await Promise.all([listTickets(ticketRepository), listExecutions(executionRepository)]);
   const providers = await inspectConfiguredProviders(config, {
-    inspect: inspectProviderRuntime
+    inspect: (providerId, definition, modelTiers) =>
+      inspectProviderRuntime(providerId, definition, modelTiers, { repositoryPath: targetDirectory })
   });
   const providerWarnings = providers.filter((provider) => provider.status !== "ready").length;
 
@@ -944,7 +1241,8 @@ async function printStatus(targetDirectory: string): Promise<void> {
 async function printProviderStatuses(targetDirectory: string, asJson: boolean): Promise<void> {
   const config = await loadOpenTopConfig(undefined, targetDirectory);
   const providers = await inspectConfiguredProviders(config, {
-    inspect: inspectProviderRuntime
+    inspect: (providerId, definition, modelTiers) =>
+      inspectProviderRuntime(providerId, definition, modelTiers, { repositoryPath: targetDirectory })
   });
 
   if (asJson) {
@@ -981,7 +1279,19 @@ async function printProviderStatuses(targetDirectory: string, asJson: boolean): 
       ["Version", provider.version ?? "(unknown)"],
       ["API key env", provider.apiKeyEnv ?? "(none)"],
       ["OAuth provider", provider.oauthProvider ?? "(none)"],
-      ["Base URL", provider.baseUrl ?? "(none)"]
+      ["Connection state", provider.connectionState.label],
+      ["Base URL", provider.baseUrl ?? "(none)"],
+      [
+        "Capabilities",
+        [
+          ...provider.capabilities.authMethods,
+          provider.capabilities.supportsStructuredOutput ? "structured" : "",
+          provider.capabilities.supportsLocalWorkspace ? "workspace" : "",
+          provider.capabilities.supportsMultiRunOrchestration ? "multi-run" : ""
+        ]
+          .filter(Boolean)
+          .join(", ") || "(none)"
+      ]
     ]);
 
     if (provider.issues.length > 0) {
@@ -1184,6 +1494,57 @@ function delay(ms: number): Promise<void> {
   });
 }
 
+async function prepareWorkItemWorkspace(
+  targetDirectory: string,
+  input: {
+    workItem: { key: string; branchStrategy: string };
+    workerPlan: { executionPlanSnapshot: { branchName: string } };
+    dependencyExecutions: Array<{ branchName: string }>;
+  }
+) {
+  const branchName = deriveWorkItemBranchName(input);
+  const preparedWorktree = await ensureBranchWorktree(targetDirectory, branchName);
+  const workspace = new GitExecutionWorkspace(preparedWorktree.repositoryPath);
+  const repositoryState = await workspace.getRepositoryState();
+
+  return {
+    branchName,
+    repositoryPath: preparedWorktree.repositoryPath,
+    repositoryState,
+    logs: preparedWorktree.logs,
+    strategy: input.workItem.branchStrategy as "isolated_worktree" | "shared_ticket_branch" | "reuse_parent_branch",
+    workspace
+  };
+}
+
+function deriveWorkItemBranchName(input: {
+  workItem: { key: string; branchStrategy: string };
+  workerPlan: { executionPlanSnapshot: { branchName: string } };
+  dependencyExecutions: Array<{ branchName: string }>;
+}): string {
+  const ticketBranch = input.workerPlan.executionPlanSnapshot.branchName;
+
+  if (input.workItem.branchStrategy === "reuse_parent_branch") {
+    return input.dependencyExecutions[0]?.branchName && input.dependencyExecutions[0].branchName !== "none"
+      ? input.dependencyExecutions[0].branchName
+      : ticketBranch;
+  }
+
+  if (input.workItem.branchStrategy === "shared_ticket_branch") {
+    return ticketBranch;
+  }
+
+  return `${ticketBranch}--${sanitizeBranchSuffix(input.workItem.key)}`;
+}
+
+function sanitizeBranchSuffix(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40);
+}
+
 function openUrlInBrowser(url: string): void {
   if (process.platform === "win32") {
     spawn("cmd", ["/c", "start", "", url], {
@@ -1334,6 +1695,12 @@ async function executeShellCommand(
       case "providers":
         await executeProvidersShellCommand(rest, targetDirectory, rl);
         return true;
+      case "worker-plans":
+        await executeWorkerPlansShellCommand(rest, targetDirectory);
+        return true;
+      case "work-items":
+        await executeWorkItemsShellCommand(rest, targetDirectory);
+        return true;
       case "classify":
         await executeClassifyShellCommand(rest, targetDirectory);
         return true;
@@ -1417,6 +1784,214 @@ async function executeTicketsShellCommand(tokens: string[], targetDirectory: str
   throw new Error("Unsupported tickets command. Use `tickets list` or `tickets create ...`.");
 }
 
+async function executeWorkerPlansShellCommand(tokens: string[], targetDirectory: string): Promise<void> {
+  const subcommand = tokens[0];
+
+  if (subcommand === "show") {
+    const ticketId = tokens[1];
+
+    if (!ticketId) {
+      throw new Error("Missing ticket ID. Use `worker-plans show <ticketId> [--json]`.");
+    }
+
+    const [workerPlanRepository, workItemRepository, executionRepository] = await Promise.all([
+      createSqliteWorkerPlanRepository({ startDirectory: targetDirectory }),
+      createSqliteWorkItemRepository({ startDirectory: targetDirectory }),
+      createSqliteExecutionRepository({ startDirectory: targetDirectory })
+    ]);
+    const [workerPlans, workItems] = await Promise.all([
+      listWorkerPlansForStoredTicket(workerPlanRepository, ticketId),
+      listWorkItemsForStoredTicket(workItemRepository, ticketId)
+    ]);
+    const workerPlan = workerPlans[0] ?? null;
+
+    if (hasFlag(tokens.slice(2), "--json")) {
+      console.log(JSON.stringify({ workerPlan, workerPlans, workItems }, null, 2));
+      return;
+    }
+
+    if (!workerPlan) {
+      console.log(`No worker plan found for ticket ${ticketId}.`);
+      return;
+    }
+
+    const executions = await listExecutionsForStoredWorkerPlan(executionRepository, workerPlan.id);
+
+    console.log(`Worker plan ${workerPlan.id} (v${workerPlan.version})`);
+    console.log(`Status: ${workerPlan.status}`);
+    console.log(`Summary: ${workerPlan.summary ?? "(none)"}`);
+    console.log(`Integration: ${workerPlan.integrationSummary ?? "(none)"}`);
+    console.log(`Reviewer comment: ${workerPlan.reviewerComment ?? "(none)"}`);
+
+    for (const workItem of workItems.filter((entry) => entry.workerPlanId === workerPlan.id)) {
+      const latestExecution = executions.find((execution) => execution.workItemId === workItem.id);
+      console.log(
+        `- ${workItem.id} [${workItem.status}] ${workItem.title} :: ${workItem.role} :: ${workItem.suggestedProviderId}/${workItem.suggestedModelId}${latestExecution ? ` :: exec ${latestExecution.id}` : ""}`
+      );
+    }
+    return;
+  }
+
+  if (subcommand === "run") {
+    const ticketId = tokens[1];
+
+    if (!ticketId) {
+      throw new Error("Missing ticket ID. Use `worker-plans run <ticketId> [--json]`.");
+    }
+
+    const [config, projectContext, ticketRepository, planArtifactRepository, workerPlanRepository, workItemRepository, executionRepository, checkRunRepository] =
+      await Promise.all([
+        loadOpenTopConfig(undefined, targetDirectory),
+        loadOpenTopProjectContext(targetDirectory),
+        createSqliteTicketRepository({ startDirectory: targetDirectory }),
+        createSqlitePlanArtifactRepository({ startDirectory: targetDirectory }),
+        createSqliteWorkerPlanRepository({ startDirectory: targetDirectory }),
+        createSqliteWorkItemRepository({ startDirectory: targetDirectory }),
+        createSqliteExecutionRepository({ startDirectory: targetDirectory }),
+        createSqliteCheckRunRepository({ startDirectory: targetDirectory })
+      ]);
+    const result = await runWorkerPlanForStoredTicket(
+      ticketRepository,
+      planArtifactRepository,
+      workerPlanRepository,
+      workItemRepository,
+      executionRepository,
+      checkRunRepository,
+      config,
+      projectContext,
+      ticketId,
+      {
+        providerForWorkItem: (workItem) =>
+          createProviderAdapter(workItem.suggestedProviderId, getProvider(config, workItem.suggestedProviderId), {
+            repositoryPath: targetDirectory
+          }),
+        prepareWorkspace: (input) => prepareWorkItemWorkspace(targetDirectory, input)
+      }
+    );
+
+    if (hasFlag(tokens.slice(2), "--json")) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    console.log(`Worker plan ${result.workerPlan.id} -> ${result.status}`);
+    console.log(result.summary);
+    return;
+  }
+
+  throw new Error("Unsupported worker-plans command. Use `worker-plans show <ticketId>` or `worker-plans run <ticketId>`.");
+}
+
+async function executeWorkItemsShellCommand(tokens: string[], targetDirectory: string): Promise<void> {
+  const subcommand = tokens[0];
+
+  if (subcommand === "list") {
+    const ticketId = tokens[1];
+
+    if (!ticketId) {
+      throw new Error("Missing ticket ID. Use `work-items list <ticketId> [--json]`.");
+    }
+
+    const repository = await createSqliteWorkItemRepository({ startDirectory: targetDirectory });
+    const workItems = await listWorkItemsForStoredTicket(repository, ticketId);
+
+    if (hasFlag(tokens.slice(2), "--json")) {
+      console.log(JSON.stringify(workItems, null, 2));
+      return;
+    }
+
+    if (workItems.length === 0) {
+      console.log(`No work items found for ticket ${ticketId}.`);
+      return;
+    }
+
+    for (const workItem of workItems) {
+      console.log(`${workItem.id} [${workItem.status}] ${workItem.title} :: ${workItem.role} :: ${workItem.branchStrategy}`);
+    }
+    return;
+  }
+
+  if (subcommand === "show") {
+    const workItemId = tokens[1];
+
+    if (!workItemId) {
+      throw new Error("Missing work item ID. Use `work-items show <id> [--json]`.");
+    }
+
+    const repository = await createSqliteWorkItemRepository({ startDirectory: targetDirectory });
+    const workItem = await getWorkItem(repository, workItemId);
+
+    if (hasFlag(tokens.slice(2), "--json")) {
+      console.log(JSON.stringify(workItem, null, 2));
+      return;
+    }
+
+    console.log(`Work item ${workItem.id}`);
+    console.log(`Status: ${workItem.status}`);
+    console.log(`Title: ${workItem.title}`);
+    console.log(`Role: ${workItem.role}`);
+    console.log(`Mode: ${workItem.suggestedMode}`);
+    console.log(`Model: ${workItem.suggestedProviderId}/${workItem.suggestedModelId}`);
+    console.log(`Branch strategy: ${workItem.branchStrategy}`);
+    console.log(`Dependencies: ${workItem.dependsOn.join(", ") || "(none)"}`);
+    console.log(`Affected areas: ${workItem.affectedAreas.join(", ") || "(none)"}`);
+    console.log(`Review notes: ${workItem.reviewNotes.join(" ") || "(none)"}`);
+    return;
+  }
+
+  if (subcommand === "run") {
+    const workItemId = tokens[1];
+
+    if (!workItemId) {
+      throw new Error("Missing work item ID. Use `work-items run <id> [--json]`.");
+    }
+
+    const [config, projectContext, ticketRepository, planArtifactRepository, workerPlanRepository, workItemRepository, executionRepository, checkRunRepository] =
+      await Promise.all([
+        loadOpenTopConfig(undefined, targetDirectory),
+        loadOpenTopProjectContext(targetDirectory),
+        createSqliteTicketRepository({ startDirectory: targetDirectory }),
+        createSqlitePlanArtifactRepository({ startDirectory: targetDirectory }),
+        createSqliteWorkerPlanRepository({ startDirectory: targetDirectory }),
+        createSqliteWorkItemRepository({ startDirectory: targetDirectory }),
+        createSqliteExecutionRepository({ startDirectory: targetDirectory }),
+        createSqliteCheckRunRepository({ startDirectory: targetDirectory })
+      ]);
+    const result = await runWorkItemForStoredTicket(
+      ticketRepository,
+      planArtifactRepository,
+      workerPlanRepository,
+      workItemRepository,
+      executionRepository,
+      checkRunRepository,
+      config,
+      projectContext,
+      workItemId,
+      {
+        providerForWorkItem: (workItem) =>
+          createProviderAdapter(workItem.suggestedProviderId, getProvider(config, workItem.suggestedProviderId), {
+            repositoryPath: targetDirectory
+          }),
+        prepareWorkspace: (input) => prepareWorkItemWorkspace(targetDirectory, input)
+      }
+    );
+
+    if (hasFlag(tokens.slice(2), "--json")) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    console.log(`Work item ${result.workItem.id} -> ${result.status}`);
+    console.log(result.reason ?? result.workerPlan.integrationSummary ?? "(no summary)");
+    if (result.execution) {
+      console.log(`Execution: ${result.execution.id}`);
+    }
+    return;
+  }
+
+  throw new Error("Unsupported work-items command. Use `work-items list <ticketId>`, `work-items show <id>`, or `work-items run <id>`.");
+}
+
 async function executeExecutionsShellCommand(tokens: string[], targetDirectory: string): Promise<void> {
   const subcommand = tokens[0];
 
@@ -1458,10 +2033,12 @@ async function executeExecutionsShellCommand(tokens: string[], targetDirectory: 
     printSection(`Execution ${execution.id}`);
     printKeyValueRows([
       ["Status", formatExecutionStatus(execution.status)],
+      ["Review", execution.reviewStatus ?? "not_required"],
       ["Ticket", execution.ticketId],
       ["Branch", execution.branchName],
       ["Profile", execution.profileId],
       ["Model", `${execution.providerId}/${execution.modelId}`],
+      ["Draft PR", execution.pullRequestUrl ?? "none"],
       ["Created", execution.createdAt]
     ]);
     return;
@@ -1516,7 +2093,9 @@ async function executePromptShellCommand(tokens: string[], targetDirectory: stri
     loadOpenTopProjectContext(targetDirectory),
     createSqliteTicketRepository({ startDirectory: targetDirectory })
   ]);
-  const builtPrompt = await buildPromptForStoredTicket(repository, config, projectContext, ticketId);
+  const builtPrompt = await buildPromptForStoredTicket(repository, config, projectContext, ticketId, {
+    planArtifactRepository: await createSqlitePlanArtifactRepository({ startDirectory: targetDirectory })
+  });
 
   if (hasFlag(tokens.slice(1), "--json")) {
     console.log(JSON.stringify(builtPrompt, null, 2));
@@ -1535,21 +2114,30 @@ async function executeRunShellCommand(tokens: string[], targetDirectory: string)
 
   const rawBranchPolicy = readOption(tokens.slice(1), "--branch-policy");
   const branchPolicy = rawBranchPolicy ? parseExecutionBranchPolicy(rawBranchPolicy) : undefined;
-  const [config, projectContext, ticketRepository, executionRepository, repositoryState] = await Promise.all([
+  const [config, projectContext, ticketRepository, promptReviewRepository, planArtifactRepository, executionRepository, checkRunRepository, repositoryState] = await Promise.all([
     loadOpenTopConfig(undefined, targetDirectory),
     loadOpenTopProjectContext(targetDirectory),
     createSqliteTicketRepository({ startDirectory: targetDirectory }),
+    createSqlitePromptReviewRepository({ startDirectory: targetDirectory }),
+    createSqlitePlanArtifactRepository({ startDirectory: targetDirectory }),
     createSqliteExecutionRepository({ startDirectory: targetDirectory }),
+    createSqliteCheckRunRepository({ startDirectory: targetDirectory }),
     getRepositoryStatus(targetDirectory)
   ]);
   const executionPlan = await planExecutionForStoredTicket(ticketRepository, config, ticketId);
-  const provider = createProviderAdapter(
+  const provider = await createProviderAdapter(
     executionPlan.providerId,
-    getProvider(config, executionPlan.providerId)
+    getProvider(config, executionPlan.providerId),
+    {
+      repositoryPath: targetDirectory
+    }
   );
   const result = await startExecutionForStoredTicket(
     ticketRepository,
+    promptReviewRepository,
+    planArtifactRepository,
     executionRepository,
+    checkRunRepository,
     new GitExecutionWorkspace(targetDirectory),
     provider,
     config,
@@ -1564,11 +2152,21 @@ async function executeRunShellCommand(tokens: string[], targetDirectory: string)
     printKeyValueRows([
       ["Ticket", result.executionPlan.ticket.id],
       ["Profile", result.executionPlan.profile.id],
+      ["Blocker", result.blocker],
       ["Requested Branch", result.executionPlan.branchName],
       ["Decision", formatBranchDecision(result.branchResolution.decision)],
       ["Policy", result.branchResolution.policy],
-      ["Reason", result.branchResolution.reason]
+      ["Reason", result.reason]
     ]);
+    if (result.promptReview) {
+      console.log("");
+      printSubsection("Prompt Review");
+      printKeyValueRows([
+        ["Version", `v${result.promptReview.version}`],
+        ["Status", result.promptReview.status],
+        ["Updated", result.promptReview.updatedAt]
+      ]);
+    }
     return;
   }
 
@@ -1588,7 +2186,7 @@ async function executeRunShellCommand(tokens: string[], targetDirectory: string)
     return;
   }
 
-  printSection("Execution Succeeded");
+  printSection(result.status === "output_ready" ? "Review Output Ready" : "Execution Succeeded");
   printKeyValueRows([
     ["Execution", result.execution.id],
     ["Ticket", result.execution.ticketId],
@@ -1609,7 +2207,29 @@ async function executeRunShellCommand(tokens: string[], targetDirectory: string)
   printBulletList(result.execution.logs);
   console.log("");
   printSubsection("Changed Files");
-  printBulletList(result.execution.changedFiles);
+  if (result.execution.changedFiles.length === 0 && result.execution.artifactKind === "review_output") {
+    printBulletList(["No local workspace changes were applied. Review the stored output before applying changes."]);
+  } else {
+    printBulletList(result.execution.changedFiles);
+  }
+  if (result.execution.outputText) {
+    console.log("");
+    printSubsection("Review Output");
+    printKeyValueRows([["Kind", formatOutputKind(result.execution.outputKind)]]);
+    printBulletList([previewText(result.execution.outputText)]);
+
+    const referencedFiles = extractReferencedFiles(result.execution.outputText);
+
+    if (referencedFiles.length > 0) {
+      console.log("");
+      printSubsection("Referenced Files");
+      printBulletList(referencedFiles);
+    }
+
+    console.log("");
+    printSubsection("Next Steps");
+    printBulletList(buildNextActionHints(result.execution.outputKind));
+  }
   console.log("");
   printSubsection("Sources");
   printBulletList(result.sources);
@@ -1819,6 +2439,10 @@ function formatExecutionStatus(status: string): string {
     return colorize(status, "green");
   }
 
+  if (status === "output_ready") {
+    return colorize(status, "yellow");
+  }
+
   if (status === "running" || status === "queued") {
     return colorize(status, "blue");
   }
@@ -1828,6 +2452,63 @@ function formatExecutionStatus(status: string): string {
   }
 
   return colorize(status, "gray");
+}
+
+function formatOutputKind(value: string | undefined): string {
+  if (!value) {
+    return "(not set)";
+  }
+
+  if (value === "patch_proposal") {
+    return "patch proposal";
+  }
+
+  if (value === "review_note") {
+    return "review note";
+  }
+
+  return value.replace(/_/g, " ");
+}
+
+function previewText(value: string, maxLength = 280): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength - 1)}…`;
+}
+
+function extractReferencedFiles(text: string): string[] {
+  const matches = [
+    ...text.matchAll(/(?:diff --git a\/|--- a\/|\+\+\+ b\/)([A-Za-z0-9._/-]+)/g),
+    ...text.matchAll(/`([A-Za-z0-9._/-]+\.[A-Za-z0-9._-]+)`/g)
+  ];
+
+  return [...new Set(matches.map((match) => match[1]).filter(Boolean))].slice(0, 10);
+}
+
+function buildNextActionHints(outputKind: string | undefined): string[] {
+  if (outputKind === "plan") {
+    return [
+      "Validate the scope and order of work before starting implementation.",
+      "Turn the approved plan into a follow-up execution or work items."
+    ];
+  }
+
+  if (outputKind === "patch_proposal") {
+    return [
+      "Inspect the referenced files before converting this proposal into local changes.",
+      "Confirm whether tests or review notes are still missing."
+    ];
+  }
+
+  if (outputKind === "review_note") {
+    return [
+      "Use this note to adjust the ticket, prompt, or routing choice.",
+      "Start a code-changing run only after the concerns are understood."
+    ];
+  }
+
+  return [
+    "Review the output and decide whether the next step should plan, implement, or stay in review mode."
+  ];
 }
 
 function formatTicketStatus(status: string): string {

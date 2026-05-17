@@ -1,0 +1,64 @@
+project:
+  name: Example Sandbox
+  defaultBranch: main
+
+providers:
+  codex:
+    type: codex-cli
+    connection:
+      method: local_cli
+      command: codex
+
+models:
+  cheap:
+    provider: codex
+    model: gpt-5-codex
+  strong:
+    provider: codex
+    model: gpt-5-codex
+
+agentProfiles:
+  bugfix:
+    modelTier: cheap
+    mode: implement_and_test
+    requiresApproval: false
+    allowedCommands: []
+  feature:
+    modelTier: strong
+    mode: plan_then_implement
+    requiresApproval: true
+    allowedCommands: []
+  architecture:
+    modelTier: strong
+    mode: plan_only
+    requiresApproval: true
+    allowedCommands: []
+  docs:
+    modelTier: cheap
+    mode: review_only
+    requiresApproval: false
+    allowedCommands: []
+
+routing:
+  rules:
+    - when:
+        taskTypes: [security, architecture]
+      profile: architecture
+      requiresApproval: true
+    - when:
+        taskTypes: [feature, migration, integration]
+      profile: feature
+      requiresApproval: true
+    - when:
+        taskTypes: [docs]
+      profile: docs
+      requiresApproval: false
+    - default:
+        profile: bugfix
+
+execution:
+  defaultBranchPolicy: reuse-current
+
+commands:
+  build: pnpm build
+  test: pnpm test

@@ -14,6 +14,7 @@
     "cli:unlink": "node scripts/unlink-local-cli.mjs",
     "dev": "turbo dev",
     "lint": "turbo lint",
+    "verify": "pnpm typecheck && pnpm test",
     "test": "turbo test",
     "typecheck": "turbo typecheck",
     "web": "pnpm --filter @opentop/web exec next dev --port 3000"

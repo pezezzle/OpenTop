@@ -201,13 +201,30 @@ Provider adapters execute AI coding agents.
 It contains:
 
 - Provider adapter interface.
-- Codex CLI adapter.
+- Provider capability definitions.
+- Secret resolution boundaries.
+- Codex CLI adapter as an external CLI provider.
 - Custom shell adapter.
-- Later OpenAI API adapter.
+- Later OpenAI-compatible API adapter.
+- Later Anthropic API adapter.
+- Later DeepSeek API adapter.
+- Later OpenRouter API adapter.
 - Later Claude Code adapter.
-- Later Ollama/OpenRouter adapters.
+- Later Ollama or local-model adapters.
 
 All providers should return normalized results: success, summary, logs, changed files, and risks.
+
+OpenTop is provider-neutral. Codex CLI is a useful local adapter, but it must not become the product foundation. The core orchestration model owns ticket analysis, model routing, prompt creation, approval policy, planner and worker orchestration, review output, and pull request flow.
+
+One practical nuance from live testing: ChatGPT/Codex subscription OAuth and direct OpenAI API execution are not interchangeable. OpenTop therefore treats `codex-cli` as the preferred Codex-subscription runtime path, while `openai-api` remains the durable direct-API path. `openai-codex` can exist as a connection and inspection surface without being treated as a supported execution runtime.
+
+Project config can store provider type, connection method, model routes, base URLs, and other non-secret metadata. API keys, OAuth tokens, refresh tokens, and user-specific credentials must stay in user scope, environment variables, or a secret store.
+
+Provider adapters should advertise capabilities such as supported auth methods, streaming, structured output, tool calls, local workspace execution, cost tracking, and multi-run suitability. OpenTop should use those capabilities when selecting providers and models for work.
+
+API-key provider runtimes should land before full OAuth connection flows. OAuth is a first-class target, but requires callback handling, token storage, refresh, revocation, and clear user-scope secret ownership.
+
+See [0005: Provider auth and runtime architecture](decisions/0005-provider-auth-and-runtime-architecture.md).
 
 ### `packages/git`
 

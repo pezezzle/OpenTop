@@ -2,19 +2,42 @@ import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
 import { z } from "zod";
 import {
+  approvePlanArtifactForStoredTicket,
+  approveExecutionReview,
+  approvePromptReviewForStoredTicket,
   buildPromptForStoredTicket,
   classifyStoredTicket,
   createExecutionPlan,
+  createDraftPullRequestForExecution,
   createTicket,
+  generateWorkerPlanForStoredTicket,
+  getWorkItem,
   getProvider,
   getConfigValue,
+  getContextSettingsScopes,
   getExecution,
+  listCheckRunsForStoredExecution,
+  listExecutionsForStoredWorkerPlan,
   inspectConfiguredProviders,
+  listPlanArtifactsForStoredTicket,
   listExecutions,
   listTickets,
+  listPromptReviewsForStoredTicket,
+  listWorkerPlansForStoredTicket,
+  listWorkItemsForStoredTicket,
+  loadAvailableContextProfiles,
   loadOpenTopConfig,
   loadOpenTopProjectContext,
   planExecutionForStoredTicket,
+  preparePromptReviewForStoredTicket,
+  regeneratePlanArtifactForStoredTicket,
+  regeneratePromptReviewForStoredTicket,
+  rejectPlanArtifactForStoredTicket,
+  rejectExecutionReview,
+  rejectPromptReviewForStoredTicket,
+  runWorkerPlanForStoredTicket,
+  runWorkItemForStoredTicket,
+  saveContextSettings,
   saveProviderSetup,
   setConfigValue,
   startExecutionForStoredTicket,
@@ -22,9 +45,25 @@ import {
   type OpenTopConfigScope,
   type Ticket
 } from "@opentop/core";
-import { createSqliteExecutionRepository, createSqliteTicketRepository } from "@opentop/db";
-import { getRepositoryStatus, GitExecutionWorkspace } from "@opentop/git";
-import { createProviderAdapter, inspectProviderRuntime } from "@opentop/providers";
+import {
+  createSqliteCheckRunRepository,
+  createSqliteExecutionRepository,
+  createSqlitePlanArtifactRepository,
+  createSqlitePromptReviewRepository,
+  createSqliteTicketRepository,
+  createSqliteWorkItemRepository,
+  createSqliteWorkerPlanRepository
+} from "@opentop/db";
+import { ensureBranchWorktree, getRepositoryStatus, GitExecutionWorkspace } from "@opentop/git";
+import {
+  cancelOauthFlow,
+  completeOauthFlow,
+  createProviderAdapter,
+  disconnectOauthConnection,
+  inspectProviderRuntime,
+  startOauthFlow
+} from "@opentop/providers";
+import { createGitHubPullRequestService } from "./github-pull-request.js";
 
 const repoQuerySchema = z.object({
   repoPath: z.string().optional()
@@ -39,8 +78,17 @@ const createTicketBodySchema = z.object({
 });
 
 const updateConfigBodySchema = z.object({
-  key: z.literal("execution.defaultBranchPolicy"),
-  value: z.enum(["new", "reuse-current", "manual", "none"]),
+  key: z.enum(["execution.defaultBranchPolicy", "context.profileMode"]),
+  value: z.string().min(1),
+  scope: z.enum(["project", "user"]).default("project")
+});
+
+const updateContextBodySchema = z.object({
+  learnedProfiles: z.array(z.string()).default([]),
+  userProfiles: z.array(z.string()).default([]),
+  profileMode: z.enum(["project-first", "profile-first", "project-only", "profile-only", "manual"]),
+  maxPromptProfileWords: z.number().int().positive(),
+  maxProfileSections: z.number().int().positive(),
   scope: z.enum(["project", "user"]).default("project")
 });
 
@@ -54,14 +102,60 @@ const updateProviderBodySchema = z.object({
   modelMappings: z.record(z.string(), z.string()).default({})
 });
 
+const oauthExchangeBodySchema = z.object({
+  sessionId: z.string().min(1),
+  code: z.string().trim().optional(),
+  error: z.string().trim().optional(),
+  errorDescription: z.string().trim().optional()
+});
+
 const runTicketBodySchema = z.object({
   branchPolicy: z.enum(["new", "reuse-current", "manual", "none"]).optional()
+});
+
+const promptReviewCommentBodySchema = z.object({
+  reviewerComment: z.string().trim().optional()
+});
+
+const executionReviewBodySchema = z.object({
+  reviewerComment: z.string().trim().optional(),
+  overrideFailedChecks: z.boolean().default(false)
+});
+
+const pullRequestBodySchema = z.object({
+  overrideFailedChecks: z.boolean().default(false)
 });
 
 type WorkflowStage = "Inbox" | "Classified" | "Ready" | "Running" | "Review" | "Done";
 
 export function buildServer() {
   const server = Fastify({ logger: true });
+
+  server.setNotFoundHandler(async (request, reply) => {
+    return reply.code(404).send({
+      ok: false,
+      error: `Not Found`,
+      path: request.url
+    });
+  });
+
+  server.setErrorHandler(async (error, _request, reply) => {
+    const statusCode =
+      typeof (error as { statusCode?: unknown }).statusCode === "number"
+        ? Number((error as { statusCode?: unknown }).statusCode)
+        : error instanceof z.ZodError
+          ? 400
+          : 500;
+
+    if (statusCode >= 500) {
+      server.log.error(error);
+    }
+
+    return reply.code(statusCode).send({
+      ok: false,
+      error: formatApiError(error)
+    });
+  });
 
   server.get("/health", async () => ({
     ok: true,
@@ -113,11 +207,42 @@ export function buildServer() {
     };
   });
 
+  server.get("/context", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const [contextSettings, projectContext, availableProfiles] = await Promise.all([
+      getContextSettingsScopes(targetDirectory),
+      loadOpenTopProjectContext(targetDirectory),
+      loadAvailableContextProfiles()
+    ]);
+
+    return {
+      repository: targetDirectory,
+      context: {
+        effective: contextSettings.effective,
+        project: contextSettings.project,
+        user: contextSettings.user,
+        activeProfiles: projectContext.activeProfiles.map((profile) => ({
+          id: profile.id,
+          type: profile.type,
+          displayName: profile.displayName,
+          description: profile.description
+        })),
+        availableProfiles: availableProfiles.map((profile) => ({
+          id: profile.id,
+          type: profile.type,
+          displayName: profile.displayName,
+          description: profile.description
+        }))
+      }
+    };
+  });
+
   server.get("/providers", async (request) => {
     const targetDirectory = resolveTargetDirectory(request.query);
     const config = await loadOpenTopConfig(undefined, targetDirectory);
     const providers = await inspectConfiguredProviders(config, {
-      inspect: inspectProviderRuntime
+      inspect: (providerId, definition, modelTiers) =>
+        inspectProviderRuntime(providerId, definition, modelTiers, { repositoryPath: targetDirectory })
     });
 
     return {
@@ -146,7 +271,8 @@ export function buildServer() {
 
     const config = await loadOpenTopConfig(undefined, targetDirectory);
     const providers = await inspectConfiguredProviders(config, {
-      inspect: inspectProviderRuntime
+      inspect: (providerId, definition, modelTiers) =>
+        inspectProviderRuntime(providerId, definition, modelTiers, { repositoryPath: targetDirectory })
     });
 
     return {
@@ -156,10 +282,102 @@ export function buildServer() {
     };
   });
 
+  server.post("/providers/:providerId/oauth/start", async (request, reply) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const providerId = z.object({ providerId: z.string().min(1) }).parse(request.params).providerId;
+    const config = await loadOpenTopConfig(undefined, targetDirectory);
+    const provider = getProvider(config, providerId);
+
+    if (provider.connection.method !== "oauth") {
+      return reply.code(400).send({
+        ok: false,
+        error: `Provider "${providerId}" is not configured for OAuth.`
+      });
+    }
+
+    const result = await startOauthFlow({
+      providerId,
+      definition: provider,
+      repositoryPath: targetDirectory,
+      webBaseUrl: process.env.OPENTOP_WEB_URL ?? "http://127.0.0.1:3000"
+    });
+
+    return {
+      ok: true,
+      ...result
+    };
+  });
+
+  server.post("/providers/:providerId/oauth/exchange", async (request, reply) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const providerId = z.object({ providerId: z.string().min(1) }).parse(request.params).providerId;
+    const body = oauthExchangeBodySchema.parse(request.body ?? {});
+
+    if (body.error) {
+      await cancelOauthFlow(body.sessionId);
+      return reply.code(400).send({
+        ok: false,
+        error: body.errorDescription
+          ? `${body.error}: ${body.errorDescription}`
+          : `OAuth connection was cancelled: ${body.error}.`
+      });
+    }
+
+    if (!body.code) {
+      return reply.code(400).send({
+        ok: false,
+        error: "Missing OAuth authorization code."
+      });
+    }
+
+    const connection = await completeOauthFlow({
+      providerId,
+      sessionId: body.sessionId,
+      code: body.code
+    });
+    const config = await loadOpenTopConfig(undefined, targetDirectory);
+    const providers = await inspectConfiguredProviders(config, {
+      inspect: (inspectedProviderId, definition, modelTiers) =>
+        inspectProviderRuntime(inspectedProviderId, definition, modelTiers, { repositoryPath: targetDirectory })
+    });
+
+    return {
+      ok: true,
+      connection: {
+        providerId: connection.providerId,
+        oauthProvider: connection.oauthProvider,
+        createdAt: connection.createdAt,
+        expiresAt: connection.expiresAt
+      },
+      provider: providers.find((entry) => entry.providerId === providerId) ?? null
+    };
+  });
+
+  server.post("/providers/:providerId/oauth/disconnect", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const providerId = z.object({ providerId: z.string().min(1) }).parse(request.params).providerId;
+    await disconnectOauthConnection(providerId, targetDirectory);
+    const config = await loadOpenTopConfig(undefined, targetDirectory);
+    const providers = await inspectConfiguredProviders(config, {
+      inspect: (inspectedProviderId, definition, modelTiers) =>
+        inspectProviderRuntime(inspectedProviderId, definition, modelTiers, { repositoryPath: targetDirectory })
+    });
+
+    return {
+      ok: true,
+      provider: providers.find((entry) => entry.providerId === providerId) ?? null
+    };
+  });
+
   server.put("/config", async (request) => {
     const targetDirectory = resolveTargetDirectory(request.query);
     const body = updateConfigBodySchema.parse(request.body);
-    const targetPath = await setConfigValue(body.key, body.value, body.scope, targetDirectory);
+    const targetPath = await setConfigValue(
+      body.key,
+      body.value as "new" | "reuse-current" | "manual" | "none" | "project-first" | "profile-first" | "project-only" | "profile-only" | "manual",
+      body.scope,
+      targetDirectory
+    );
 
     return {
       ok: true,
@@ -167,6 +385,27 @@ export function buildServer() {
       key: body.key,
       value: body.value,
       scope: body.scope
+    };
+  });
+
+  server.put("/context", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const body = updateContextBodySchema.parse(request.body);
+    const targetPath = await saveContextSettings(
+      {
+        learnedProfiles: body.learnedProfiles,
+        userProfiles: body.userProfiles,
+        profileMode: body.profileMode,
+        maxPromptProfileWords: body.maxPromptProfileWords,
+        maxProfileSections: body.maxProfileSections
+      },
+      body.scope,
+      targetDirectory
+    );
+
+    return {
+      ok: true,
+      targetPath
     };
   });
 
@@ -204,15 +443,34 @@ export function buildServer() {
   server.get("/tickets/:ticketId", async (request) => {
     const targetDirectory = resolveTargetDirectory(request.query);
     const ticketId = z.object({ ticketId: z.string() }).parse(request.params).ticketId;
-    const [config, projectContext, ticketRepository, executionRepository] = await Promise.all([
+    const [
+      config,
+      projectContext,
+      ticketRepository,
+      promptReviewRepository,
+      planArtifactRepository,
+      workerPlanRepository,
+      workItemRepository,
+      executionRepository
+    ] = await Promise.all([
       loadOpenTopConfig(undefined, targetDirectory),
       loadOpenTopProjectContext(targetDirectory),
       createSqliteTicketRepository({ startDirectory: targetDirectory }),
+      createSqlitePromptReviewRepository({ startDirectory: targetDirectory }),
+      createSqlitePlanArtifactRepository({ startDirectory: targetDirectory }),
+      createSqliteWorkerPlanRepository({ startDirectory: targetDirectory }),
+      createSqliteWorkItemRepository({ startDirectory: targetDirectory }),
       createSqliteExecutionRepository({ startDirectory: targetDirectory })
     ]);
-    const [classifiedTicket, prompt, executions] = await Promise.all([
+    const [classifiedTicket, promptReviewResult, promptReviews, planArtifacts, workerPlans, workItems, executions] = await Promise.all([
       classifyStoredTicket(ticketRepository, config, ticketId),
-      buildPromptForStoredTicket(ticketRepository, config, projectContext, ticketId),
+      preparePromptReviewForStoredTicket(ticketRepository, promptReviewRepository, config, projectContext, ticketId, {
+        planArtifactRepository
+      }),
+      listPromptReviewsForStoredTicket(promptReviewRepository, ticketId),
+      listPlanArtifactsForStoredTicket(planArtifactRepository, ticketId),
+      listWorkerPlansForStoredTicket(workerPlanRepository, ticketId),
+      listWorkItemsForStoredTicket(workItemRepository, ticketId),
       executionRepository.listByTicketId(ticketId)
     ]);
     const ticket = enrichTicketSummary(classifiedTicket.ticket, config, executions);
@@ -221,7 +479,18 @@ export function buildServer() {
       ticket,
       classification: classifiedTicket.classification,
       executionPlan: classifiedTicket.executionPlan,
-      prompt,
+      prompt: {
+        prompt: promptReviewResult.builtPrompt.prompt,
+        sources: promptReviewResult.builtPrompt.sources,
+        contextSummary: promptReviewResult.builtPrompt.contextSummary
+      },
+      promptReview: promptReviewResult.promptReview,
+      promptReviews,
+      planArtifact: planArtifacts[0] ?? null,
+      planArtifacts,
+      workerPlan: workerPlans[0] ?? null,
+      workerPlans,
+      workItems,
       executions
     };
   });
@@ -240,34 +509,365 @@ export function buildServer() {
   server.get("/tickets/:ticketId/prompt", async (request) => {
     const targetDirectory = resolveTargetDirectory(request.query);
     const ticketId = z.object({ ticketId: z.string() }).parse(request.params).ticketId;
-    const [config, projectContext, ticketRepository] = await Promise.all([
+    const [config, projectContext, ticketRepository, promptReviewRepository, planArtifactRepository] = await Promise.all([
       loadOpenTopConfig(undefined, targetDirectory),
       loadOpenTopProjectContext(targetDirectory),
-      createSqliteTicketRepository({ startDirectory: targetDirectory })
+      createSqliteTicketRepository({ startDirectory: targetDirectory }),
+      createSqlitePromptReviewRepository({ startDirectory: targetDirectory }),
+      createSqlitePlanArtifactRepository({ startDirectory: targetDirectory })
     ]);
 
-    return buildPromptForStoredTicket(ticketRepository, config, projectContext, ticketId);
+    const promptReview = await preparePromptReviewForStoredTicket(
+      ticketRepository,
+      promptReviewRepository,
+      config,
+      projectContext,
+      ticketId,
+      { planArtifactRepository }
+    );
+
+    return {
+      prompt: promptReview.builtPrompt.prompt,
+      sources: promptReview.builtPrompt.sources,
+      contextSummary: promptReview.builtPrompt.contextSummary,
+      promptReview: promptReview.promptReview
+    };
+  });
+
+  server.post("/tickets/:ticketId/prompt/regenerate", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const ticketId = z.object({ ticketId: z.string() }).parse(request.params).ticketId;
+    const body = promptReviewCommentBodySchema.parse(request.body ?? {});
+    const [config, projectContext, ticketRepository, promptReviewRepository, planArtifactRepository] = await Promise.all([
+      loadOpenTopConfig(undefined, targetDirectory),
+      loadOpenTopProjectContext(targetDirectory),
+      createSqliteTicketRepository({ startDirectory: targetDirectory }),
+      createSqlitePromptReviewRepository({ startDirectory: targetDirectory }),
+      createSqlitePlanArtifactRepository({ startDirectory: targetDirectory })
+    ]);
+
+    return {
+      promptReview: await regeneratePromptReviewForStoredTicket(
+        ticketRepository,
+        promptReviewRepository,
+        config,
+        projectContext,
+        ticketId,
+        body.reviewerComment,
+        { planArtifactRepository }
+      )
+    };
+  });
+
+  server.post("/tickets/:ticketId/prompt/:promptReviewId/approve", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const params = z.object({ ticketId: z.string(), promptReviewId: z.string() }).parse(request.params);
+    const body = promptReviewCommentBodySchema.parse(request.body ?? {});
+    const [config, projectContext, ticketRepository, promptReviewRepository, planArtifactRepository] = await Promise.all([
+      loadOpenTopConfig(undefined, targetDirectory),
+      loadOpenTopProjectContext(targetDirectory),
+      createSqliteTicketRepository({ startDirectory: targetDirectory }),
+      createSqlitePromptReviewRepository({ startDirectory: targetDirectory }),
+      createSqlitePlanArtifactRepository({ startDirectory: targetDirectory })
+    ]);
+
+    return {
+      promptReview: await approvePromptReviewForStoredTicket(
+        ticketRepository,
+        promptReviewRepository,
+        config,
+        projectContext,
+        params.ticketId,
+        params.promptReviewId,
+        body.reviewerComment,
+        { planArtifactRepository }
+      )
+    };
+  });
+
+  server.post("/tickets/:ticketId/prompt/:promptReviewId/reject", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const params = z.object({ ticketId: z.string(), promptReviewId: z.string() }).parse(request.params);
+    const body = promptReviewCommentBodySchema.parse(request.body ?? {});
+    const [config, projectContext, ticketRepository, promptReviewRepository, planArtifactRepository] = await Promise.all([
+      loadOpenTopConfig(undefined, targetDirectory),
+      loadOpenTopProjectContext(targetDirectory),
+      createSqliteTicketRepository({ startDirectory: targetDirectory }),
+      createSqlitePromptReviewRepository({ startDirectory: targetDirectory }),
+      createSqlitePlanArtifactRepository({ startDirectory: targetDirectory })
+    ]);
+
+    return {
+      promptReview: await rejectPromptReviewForStoredTicket(
+        ticketRepository,
+        promptReviewRepository,
+        config,
+        projectContext,
+        params.ticketId,
+        params.promptReviewId,
+        body.reviewerComment,
+        { planArtifactRepository }
+      )
+    };
+  });
+
+  server.get("/tickets/:ticketId/plan", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const ticketId = z.object({ ticketId: z.string() }).parse(request.params).ticketId;
+    const repository = await createSqlitePlanArtifactRepository({ startDirectory: targetDirectory });
+
+    return {
+      planArtifact: (await listPlanArtifactsForStoredTicket(repository, ticketId))[0] ?? null,
+      planArtifacts: await listPlanArtifactsForStoredTicket(repository, ticketId)
+    };
+  });
+
+  server.post("/tickets/:ticketId/plan/regenerate", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const ticketId = z.object({ ticketId: z.string() }).parse(request.params).ticketId;
+    const body = promptReviewCommentBodySchema.parse(request.body ?? {});
+    const [
+      config,
+      projectContext,
+      ticketRepository,
+      promptReviewRepository,
+      planArtifactRepository,
+      executionRepository,
+      repositoryState
+    ] = await Promise.all([
+      loadOpenTopConfig(undefined, targetDirectory),
+      loadOpenTopProjectContext(targetDirectory),
+      createSqliteTicketRepository({ startDirectory: targetDirectory }),
+      createSqlitePromptReviewRepository({ startDirectory: targetDirectory }),
+      createSqlitePlanArtifactRepository({ startDirectory: targetDirectory }),
+      createSqliteExecutionRepository({ startDirectory: targetDirectory }),
+      getRepositoryStatus(targetDirectory)
+    ]);
+    const executionPlan = await planExecutionForStoredTicket(ticketRepository, config, ticketId);
+    const provider = await createProviderAdapter(executionPlan.providerId, getProvider(config, executionPlan.providerId), {
+      repositoryPath: targetDirectory
+    });
+
+    return regeneratePlanArtifactForStoredTicket(
+      ticketRepository,
+      promptReviewRepository,
+      planArtifactRepository,
+      executionRepository,
+      new GitExecutionWorkspace(targetDirectory),
+      provider,
+      config,
+      projectContext,
+      ticketId,
+      repositoryState,
+      body.reviewerComment
+    );
+  });
+
+  server.post("/tickets/:ticketId/plan/:planArtifactId/approve", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const params = z.object({ ticketId: z.string(), planArtifactId: z.string() }).parse(request.params);
+    const body = promptReviewCommentBodySchema.parse(request.body ?? {});
+    const repository = await createSqlitePlanArtifactRepository({ startDirectory: targetDirectory });
+
+    return {
+      planArtifact: await approvePlanArtifactForStoredTicket(
+        repository,
+        params.ticketId,
+        params.planArtifactId,
+        body.reviewerComment
+      )
+    };
+  });
+
+  server.post("/tickets/:ticketId/plan/:planArtifactId/reject", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const params = z.object({ ticketId: z.string(), planArtifactId: z.string() }).parse(request.params);
+    const body = promptReviewCommentBodySchema.parse(request.body ?? {});
+    const repository = await createSqlitePlanArtifactRepository({ startDirectory: targetDirectory });
+
+    return {
+      planArtifact: await rejectPlanArtifactForStoredTicket(
+        repository,
+        params.ticketId,
+        params.planArtifactId,
+        body.reviewerComment
+      )
+    };
+  });
+
+  server.get("/tickets/:ticketId/worker-plan", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const ticketId = z.object({ ticketId: z.string() }).parse(request.params).ticketId;
+    const [workerPlanRepository, workItemRepository] = await Promise.all([
+      createSqliteWorkerPlanRepository({ startDirectory: targetDirectory }),
+      createSqliteWorkItemRepository({ startDirectory: targetDirectory })
+    ]);
+    const [workerPlans, workItems] = await Promise.all([
+      listWorkerPlansForStoredTicket(workerPlanRepository, ticketId),
+      listWorkItemsForStoredTicket(workItemRepository, ticketId)
+    ]);
+
+    return {
+      workerPlan: workerPlans[0] ?? null,
+      workerPlans,
+      workItems
+    };
+  });
+
+  server.post("/tickets/:ticketId/worker-plan/generate", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const ticketId = z.object({ ticketId: z.string() }).parse(request.params).ticketId;
+    const body = promptReviewCommentBodySchema.parse(request.body ?? {});
+    const [config, ticketRepository, planArtifactRepository, workerPlanRepository, workItemRepository] = await Promise.all([
+      loadOpenTopConfig(undefined, targetDirectory),
+      createSqliteTicketRepository({ startDirectory: targetDirectory }),
+      createSqlitePlanArtifactRepository({ startDirectory: targetDirectory }),
+      createSqliteWorkerPlanRepository({ startDirectory: targetDirectory }),
+      createSqliteWorkItemRepository({ startDirectory: targetDirectory })
+    ]);
+
+    return generateWorkerPlanForStoredTicket(
+      ticketRepository,
+      planArtifactRepository,
+      workerPlanRepository,
+      workItemRepository,
+      config,
+      ticketId,
+      body.reviewerComment
+    );
+  });
+
+  server.post("/tickets/:ticketId/worker-plan/run", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const ticketId = z.object({ ticketId: z.string() }).parse(request.params).ticketId;
+    const [config, projectContext, ticketRepository, planArtifactRepository, workerPlanRepository, workItemRepository, executionRepository, checkRunRepository] =
+      await Promise.all([
+        loadOpenTopConfig(undefined, targetDirectory),
+        loadOpenTopProjectContext(targetDirectory),
+        createSqliteTicketRepository({ startDirectory: targetDirectory }),
+        createSqlitePlanArtifactRepository({ startDirectory: targetDirectory }),
+        createSqliteWorkerPlanRepository({ startDirectory: targetDirectory }),
+        createSqliteWorkItemRepository({ startDirectory: targetDirectory }),
+        createSqliteExecutionRepository({ startDirectory: targetDirectory }),
+        createSqliteCheckRunRepository({ startDirectory: targetDirectory })
+      ]);
+
+    return runWorkerPlanForStoredTicket(
+      ticketRepository,
+      planArtifactRepository,
+      workerPlanRepository,
+      workItemRepository,
+      executionRepository,
+      checkRunRepository,
+      config,
+      projectContext,
+      ticketId,
+      {
+        providerForWorkItem: (workItem) =>
+          createProviderAdapter(workItem.suggestedProviderId, getProvider(config, workItem.suggestedProviderId), {
+            repositoryPath: targetDirectory
+          }),
+        prepareWorkspace: (input) => prepareWorkItemWorkspace(targetDirectory, input)
+      }
+    );
+  });
+
+  server.get("/work-items/:workItemId", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const workItemId = z.object({ workItemId: z.string() }).parse(request.params).workItemId;
+    const repository = await createSqliteWorkItemRepository({ startDirectory: targetDirectory });
+
+    return {
+      workItem: await getWorkItem(repository, workItemId)
+    };
+  });
+
+  server.post("/work-items/:workItemId/run", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const workItemId = z.object({ workItemId: z.string() }).parse(request.params).workItemId;
+    const [config, projectContext, ticketRepository, planArtifactRepository, workerPlanRepository, workItemRepository, executionRepository, checkRunRepository] =
+      await Promise.all([
+        loadOpenTopConfig(undefined, targetDirectory),
+        loadOpenTopProjectContext(targetDirectory),
+        createSqliteTicketRepository({ startDirectory: targetDirectory }),
+        createSqlitePlanArtifactRepository({ startDirectory: targetDirectory }),
+        createSqliteWorkerPlanRepository({ startDirectory: targetDirectory }),
+        createSqliteWorkItemRepository({ startDirectory: targetDirectory }),
+        createSqliteExecutionRepository({ startDirectory: targetDirectory }),
+        createSqliteCheckRunRepository({ startDirectory: targetDirectory })
+      ]);
+
+    return runWorkItemForStoredTicket(
+      ticketRepository,
+      planArtifactRepository,
+      workerPlanRepository,
+      workItemRepository,
+      executionRepository,
+      checkRunRepository,
+      config,
+      projectContext,
+      workItemId,
+      {
+        providerForWorkItem: (workItem) =>
+          createProviderAdapter(workItem.suggestedProviderId, getProvider(config, workItem.suggestedProviderId), {
+            repositoryPath: targetDirectory
+          }),
+        prepareWorkspace: (input) => prepareWorkItemWorkspace(targetDirectory, input)
+      }
+    );
   });
 
   server.post("/tickets/:ticketId/run", async (request) => {
     const targetDirectory = resolveTargetDirectory(request.query);
     const ticketId = z.object({ ticketId: z.string() }).parse(request.params).ticketId;
     const body = runTicketBodySchema.parse(request.body ?? {});
-    const [config, projectContext, ticketRepository, executionRepository, repositoryState] = await Promise.all([
+    const [config, projectContext, ticketRepository, promptReviewRepository, planArtifactRepository, executionRepository, checkRunRepository, repositoryState] =
+      await Promise.all([
       loadOpenTopConfig(undefined, targetDirectory),
       loadOpenTopProjectContext(targetDirectory),
       createSqliteTicketRepository({ startDirectory: targetDirectory }),
+      createSqlitePromptReviewRepository({ startDirectory: targetDirectory }),
+      createSqlitePlanArtifactRepository({ startDirectory: targetDirectory }),
       createSqliteExecutionRepository({ startDirectory: targetDirectory }),
+      createSqliteCheckRunRepository({ startDirectory: targetDirectory }),
       getRepositoryStatus(targetDirectory)
-    ]);
+      ]);
     const executionPlan = await planExecutionForStoredTicket(ticketRepository, config, ticketId);
-    const provider = createProviderAdapter(
-      executionPlan.providerId,
-      getProvider(config, executionPlan.providerId)
-    );
+    let provider;
+
+    try {
+      provider = await createProviderAdapter(
+        executionPlan.providerId,
+        getProvider(config, executionPlan.providerId),
+        {
+          repositoryPath: targetDirectory
+        }
+      );
+    } catch (error) {
+      if (isProviderRuntimeBlockedError(error)) {
+        return {
+          status: "blocked" as const,
+          blocker: "provider_runtime" as const,
+          reason: error.message,
+          branchResolution: {
+            policy: body.branchPolicy ?? config.execution.defaultBranchPolicy,
+            decision: "none",
+            branchName: executionPlan.branchName,
+            reason: error.message,
+            repositoryState
+          }
+        };
+      }
+
+      throw error;
+    }
+
     const result = await startExecutionForStoredTicket(
       ticketRepository,
+      promptReviewRepository,
+      planArtifactRepository,
       executionRepository,
+      checkRunRepository,
       new GitExecutionWorkspace(targetDirectory),
       provider,
       config,
@@ -292,10 +892,75 @@ export function buildServer() {
   server.get("/executions/:executionId", async (request) => {
     const targetDirectory = resolveTargetDirectory(request.query);
     const executionId = z.object({ executionId: z.string() }).parse(request.params).executionId;
-    const repository = await createSqliteExecutionRepository({ startDirectory: targetDirectory });
+    const [repository, checkRunRepository] = await Promise.all([
+      createSqliteExecutionRepository({ startDirectory: targetDirectory }),
+      createSqliteCheckRunRepository({ startDirectory: targetDirectory })
+    ]);
 
     return {
-      execution: await getExecution(repository, executionId)
+      execution: await getExecution(repository, executionId),
+      checkRuns: await listCheckRunsForStoredExecution(checkRunRepository, executionId)
+    };
+  });
+
+  server.post("/executions/:executionId/review/approve", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const executionId = z.object({ executionId: z.string() }).parse(request.params).executionId;
+    const body = executionReviewBodySchema.parse(request.body ?? {});
+    const [executionRepository, checkRunRepository] = await Promise.all([
+      createSqliteExecutionRepository({ startDirectory: targetDirectory }),
+      createSqliteCheckRunRepository({ startDirectory: targetDirectory })
+    ]);
+
+    return {
+      execution: await approveExecutionReview(
+        executionRepository,
+        checkRunRepository,
+        executionId,
+        body.reviewerComment,
+        body.overrideFailedChecks
+      ),
+      checkRuns: await listCheckRunsForStoredExecution(checkRunRepository, executionId)
+    };
+  });
+
+  server.post("/executions/:executionId/review/reject", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const executionId = z.object({ executionId: z.string() }).parse(request.params).executionId;
+    const body = executionReviewBodySchema.parse(request.body ?? {});
+    const executionRepository = await createSqliteExecutionRepository({ startDirectory: targetDirectory });
+
+    return {
+      execution: await rejectExecutionReview(executionRepository, executionId, body.reviewerComment)
+    };
+  });
+
+  server.post("/executions/:executionId/pull-request", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const executionId = z.object({ executionId: z.string() }).parse(request.params).executionId;
+    const body = pullRequestBodySchema.parse(request.body ?? {});
+    const [config, projectContext, ticketRepository, executionRepository, checkRunRepository] = await Promise.all([
+      loadOpenTopConfig(undefined, targetDirectory),
+      loadOpenTopProjectContext(targetDirectory),
+      createSqliteTicketRepository({ startDirectory: targetDirectory }),
+      createSqliteExecutionRepository({ startDirectory: targetDirectory }),
+      createSqliteCheckRunRepository({ startDirectory: targetDirectory })
+    ]);
+
+    return {
+      execution: await createDraftPullRequestForExecution(
+        ticketRepository,
+        executionRepository,
+        checkRunRepository,
+        config,
+        projectContext,
+        createGitHubPullRequestService(),
+        executionId,
+        {
+          overrideFailedChecks: body.overrideFailedChecks
+        }
+      ),
+      checkRuns: await listCheckRunsForStoredExecution(checkRunRepository, executionId)
     };
   });
 
@@ -324,6 +989,30 @@ export function buildServer() {
   });
 
   return server;
+}
+
+function isProviderRuntimeBlockedError(error: unknown): error is Error {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return (
+    error.message.includes("runtime adapter is not implemented yet") ||
+    error.message.includes("no active credentials were found") ||
+    error.message.includes("does not support OAuth")
+  );
+}
+
+function formatApiError(error: unknown): string {
+  if (error instanceof z.ZodError) {
+    return error.issues.map((issue) => `${issue.path.join(".") || "request"}: ${issue.message}`).join("; ");
+  }
+
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  return "Unexpected server error.";
 }
 
 const currentFile = fileURLToPath(import.meta.url);
@@ -377,8 +1066,65 @@ function deriveWorkflowStage(
   }
 
   if (latestExecution.status === "succeeded") {
+    return latestExecution.reviewStatus === "approved" || latestExecution.reviewStatus === "not_required"
+      ? "Done"
+      : "Review";
+  }
+
+  if (latestExecution.status === "output_ready") {
     return "Review";
   }
 
   return "Classified";
+}
+
+async function prepareWorkItemWorkspace(
+  targetDirectory: string,
+  input: {
+    workItem: { key: string; branchStrategy: string };
+    workerPlan: { executionPlanSnapshot: { branchName: string } };
+    dependencyExecutions: Array<{ branchName: string }>;
+  }
+) {
+  const branchName = deriveWorkItemBranchName(input);
+  const preparedWorktree = await ensureBranchWorktree(targetDirectory, branchName);
+  const workspace = new GitExecutionWorkspace(preparedWorktree.repositoryPath);
+  const repositoryState = await workspace.getRepositoryState();
+
+  return {
+    branchName,
+    repositoryPath: preparedWorktree.repositoryPath,
+    repositoryState,
+    logs: preparedWorktree.logs,
+    strategy: input.workItem.branchStrategy as "isolated_worktree" | "shared_ticket_branch" | "reuse_parent_branch",
+    workspace
+  };
+}
+
+function deriveWorkItemBranchName(input: {
+  workItem: { key: string; branchStrategy: string };
+  workerPlan: { executionPlanSnapshot: { branchName: string } };
+  dependencyExecutions: Array<{ branchName: string }>;
+}): string {
+  const ticketBranch = input.workerPlan.executionPlanSnapshot.branchName;
+
+  if (input.workItem.branchStrategy === "reuse_parent_branch") {
+    return input.dependencyExecutions[0]?.branchName && input.dependencyExecutions[0].branchName !== "none"
+      ? input.dependencyExecutions[0].branchName
+      : ticketBranch;
+  }
+
+  if (input.workItem.branchStrategy === "shared_ticket_branch") {
+    return ticketBranch;
+  }
+
+  return `${ticketBranch}--${sanitizeBranchSuffix(input.workItem.key)}`;
+}
+
+function sanitizeBranchSuffix(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40);
 }

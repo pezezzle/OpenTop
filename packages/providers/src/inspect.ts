@@ -6,14 +6,23 @@ import type {
 } from "./types.js";
 import type { ProviderDefinition } from "./factory.js";
 import { resolveExecutable } from "./command-resolution.js";
+import { getProviderCapabilities, isOpenAiCompatibleProvider } from "./capabilities.js";
+import { defaultApiKeyEnv, defaultBaseUrl } from "./openai-compatible.js";
+import { environmentSecretResolver } from "./secrets.js";
+import { getOauthSupport, inspectOauthConnection, resolveOauthProviderName } from "./oauth.js";
+
+export interface ProviderInspectionContext {
+  repositoryPath?: string;
+}
 
 export async function inspectProviderRuntime(
   providerId: string,
   definition: ProviderDefinition,
-  modelTiers: ProviderModelReference[]
+  modelTiers: ProviderModelReference[],
+  context: ProviderInspectionContext = {}
 ): Promise<ProviderInspectionResult> {
   if (definition.connection.method === "oauth") {
-    return inspectOauthProvider(providerId, definition, modelTiers);
+    return inspectOauthProvider(providerId, definition, modelTiers, context);
   }
 
   if (definition.type === "codex-cli") {
@@ -40,7 +49,8 @@ export async function inspectProviderRuntime(
         code: "provider_type_unsupported",
         message: `Provider type "${definition.type}" is not supported yet.`
       }
-    ]
+    ],
+    capabilities: getProviderCapabilities(definition)
   };
 }
 
@@ -49,6 +59,34 @@ async function inspectCodexCliProvider(
   definition: ProviderDefinition,
   modelTiers: ProviderModelReference[]
 ): Promise<ProviderInspectionResult> {
+  if (definition.connection.method !== "local_cli") {
+    return {
+      available: false,
+      issues: [
+        {
+          severity: "warning",
+          code: "codex_cli_connection_pending",
+          message: `Provider "${providerId}" uses connection method "${definition.connection.method}", but codex-cli currently supports local_cli only. OAuth and API-key connection flows are planned separately from the local Codex CLI adapter.`
+        },
+        ...(modelTiers.length === 0
+          ? [
+              {
+                severity: "warning" as const,
+                code: "no_model_tiers",
+                message: `Provider "${providerId}" is configured, but no model tiers currently route to it.`
+              }
+            ]
+          : [])
+      ],
+      capabilities: getProviderCapabilities(definition),
+      metadata: {
+        command: definition.command ?? "codex",
+        connectionMethod: definition.connection.method,
+        providerType: definition.type
+      }
+    };
+  }
+
   const command = definition.command ?? "codex";
   const issues: ProviderIssue[] = [];
   const executable = await resolveExecutable(command);
@@ -84,6 +122,7 @@ async function inspectCodexCliProvider(
     available: commandCheck.ok,
     version: commandCheck.ok ? extractFirstLine(commandCheck.stdout) : undefined,
     issues,
+    capabilities: getProviderCapabilities(definition),
     metadata: {
       command,
       resolvedCommand: executable,
@@ -125,6 +164,7 @@ async function inspectCustomShellProvider(
   return {
     available: Boolean(definition.command),
     issues,
+    capabilities: getProviderCapabilities(definition),
     metadata: {
       command: definition.command ?? "(missing)",
       connectionMethod: definition.connection.method,
@@ -139,8 +179,8 @@ async function inspectApiKeyProvider(
   modelTiers: ProviderModelReference[]
 ): Promise<ProviderInspectionResult> {
   const issues: ProviderIssue[] = [];
-  const apiKeyEnv = definition.apiKeyEnv ?? definition.connection.apiKeyEnv;
-  const apiKeyAvailable = typeof apiKeyEnv === "string" && apiKeyEnv.length > 0 && Boolean(process.env[apiKeyEnv]);
+  const apiKeyEnv = definition.apiKeyEnv ?? definition.connection.apiKeyEnv ?? defaultApiKeyEnv(definition.type);
+  const apiKeyAvailable = Boolean(await environmentSecretResolver.resolve(apiKeyEnv));
 
   if (!apiKeyEnv) {
     issues.push({
@@ -164,22 +204,38 @@ async function inspectApiKeyProvider(
     });
   }
 
-  if (definition.type === "openai-api") {
+  if (isOpenAiCompatibleProvider(definition.type)) {
     issues.push({
       severity: "info",
+      code: "api_provider_output_only",
+      message:
+        definition.type === "openai-codex"
+          ? `Provider "${providerId}" can run OpenAI Responses API review-output requests, but local patch application is not implemented yet.`
+          : `Provider "${providerId}" can run OpenAI-compatible chat completions, but local patch application is not implemented yet.`
+    });
+  } else if (definition.type === "anthropic-api") {
+    issues.push({
+      severity: "info",
+      code: "api_provider_output_only",
+      message: `Provider "${providerId}" can run Anthropic messages requests, but local patch application is not implemented yet.`
+    });
+  } else {
+    issues.push({
+      severity: "warning",
       code: "runtime_adapter_pending",
-      message: `OpenTop can store and validate this OpenAI API connection, but the runtime adapter is not implemented yet.`
+      message: `OpenTop can store and validate this API-key connection, but the runtime adapter for provider type "${definition.type}" is not implemented yet.`
     });
   }
 
   return {
     available: apiKeyAvailable,
     issues,
+    capabilities: getProviderCapabilities(definition),
     metadata: {
       apiKeyEnv: apiKeyEnv ?? "(missing)",
       connectionMethod: definition.connection.method,
       providerType: definition.type,
-      ...(definition.baseUrl ? { baseUrl: definition.baseUrl } : {})
+      baseUrl: definition.baseUrl ?? definition.connection.baseUrl ?? defaultBaseUrl(definition.type)
     }
   };
 }
@@ -187,15 +243,12 @@ async function inspectApiKeyProvider(
 async function inspectOauthProvider(
   providerId: string,
   definition: ProviderDefinition,
-  modelTiers: ProviderModelReference[]
+  modelTiers: ProviderModelReference[],
+  context: ProviderInspectionContext
 ): Promise<ProviderInspectionResult> {
-  const issues: ProviderIssue[] = [
-    {
-      severity: "warning",
-      code: "oauth_flow_pending",
-      message: `Provider "${providerId}" is configured for OAuth, but the interactive OAuth connect flow is not implemented yet. Store only non-secret metadata in project config.`
-    }
-  ];
+  const connectionState = await inspectOauthConnection(providerId, definition, context.repositoryPath ?? process.cwd());
+  const issues: ProviderIssue[] = [];
+  const support = getOauthSupport(definition);
 
   if (modelTiers.length === 0) {
     issues.push({
@@ -205,11 +258,60 @@ async function inspectOauthProvider(
     });
   }
 
+  if (!support.supported) {
+    issues.push({
+      severity: "error",
+      code: "oauth_unsupported",
+      message:
+        support.reason ??
+        `Provider "${providerId}" is configured for OAuth, but provider type "${definition.type}" does not support it yet.`
+    });
+  } else if (connectionState.status === "connected") {
+    issues.push({
+      severity: "info",
+      code: "oauth_connected",
+      message: `Provider "${providerId}" is connected through ${support.provider} OAuth. Secrets stay in the user-scoped OpenTop auth store.`
+    });
+  } else if (connectionState.status === "expired") {
+    issues.push({
+      severity: "error",
+      code: "oauth_expired",
+      message: connectionState.lastError ?? `Provider "${providerId}" has expired OAuth credentials and needs to reconnect.`
+    });
+  } else {
+    issues.push({
+      severity: "warning",
+      code: "oauth_not_connected",
+      message: `Provider "${providerId}" is configured for OAuth, but no active connection exists yet. Connect it from OpenTop Settings before running tickets.`
+    });
+  }
+
+  if (definition.type === "openai-codex") {
+    issues.push({
+      severity: "warning",
+      code: "runtime_disabled",
+      message:
+        `Provider "${providerId}" can connect through OpenAI Codex OAuth, but OpenTop does not currently support it as an execution runtime. ` +
+        `Use codex-cli for ChatGPT/Codex subscription access or openai-api with an API key for direct OpenAI API usage.`
+    });
+  } else if (isOpenAiCompatibleProvider(definition.type) && support.supported) {
+    issues.push({
+      severity: "info",
+      code: "api_provider_output_only",
+      message:
+        definition.type === "openai-codex"
+          ? `Provider "${providerId}" can run OpenAI Responses API review-output requests after OAuth connect, but local patch application is not implemented yet. The connected token must also have the Responses API scope "api.responses.write".`
+          : `Provider "${providerId}" can run OpenAI-compatible chat completions after OAuth connect, but local patch application is not implemented yet.`
+    });
+  }
+
   return {
-    available: false,
+    available: definition.type === "openai-codex" ? false : connectionState.status === "connected",
     issues,
+    capabilities: getProviderCapabilities(definition),
+    connectionState,
     metadata: {
-      oauthProvider: definition.oauthProvider ?? definition.connection.oauthProvider ?? "(not set)",
+      oauthProvider: resolveOauthProviderName(definition) || "(not set)",
       connectionMethod: definition.connection.method,
       providerType: definition.type
     }
@@ -248,6 +350,7 @@ async function inspectLocalModelProvider(
   return {
     available: issues.every((issue) => issue.severity !== "error"),
     issues,
+    capabilities: getProviderCapabilities(definition),
     metadata: {
       baseUrl: definition.baseUrl ?? definition.connection.baseUrl ?? "(not set)",
       connectionMethod: definition.connection.method,

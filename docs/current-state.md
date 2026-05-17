@@ -12,14 +12,36 @@ OpenTop currently has:
 - a Next.js Web UI
 - core domain types and services
 - rule-based ticket classification
+- expanded ticket classification with task categories, detected signals, affected areas, risk/complexity scoring, and provider-aware model routing
+- layered prompt context with project memory, active learned/user profiles, and prompt-budget limits
+- prompt review versioning with approval, rejection, regeneration, and execution gating
+- plan artifact versioning with approval, rejection, regeneration, and implementation gating
+- worker-plan versioning with dependency-aware work-item decomposition from approved plans
+- sequential worker-plan execution with per-work-item executions, dependency release, and integration summaries
+- post-run build/test checks for successful workspace-changing executions
+- execution review state with approve/reject decisions and optional failed-check override
+- diff summaries with per-file patch previews and line counts
+- risk summaries derived from classification, failed checks, diff size, and sensitive file changes
+- draft pull-request creation from approved executions, with rendered PR body and stored PR metadata
 - prompt building from ticket, config, project context, memory, and prompt templates
 - local SQLite persistence through `sql.js` and Drizzle
 - stored tickets
 - stored executions with prompt snapshots, provider logs, and changed files
+- stored review-output artifacts with `output_ready`, output kind, and output text
 - branch policy resolution
 - project and user config reads/writes for `execution.defaultBranchPolicy`
 - provider runtime inspection for configured providers and routed model tiers
+- provider capability reporting for auth method, structured output, local workspace support, and multi-run suitability
 - provider setup persisted as `provider type + connection method + model tier mapping`
+- environment-variable based secret resolution boundary for API-key providers
+- OpenAI-compatible API-key runtime baseline for providers such as OpenAI, DeepSeek, and OpenRouter
+- repository-scoped OAuth credential storage under `~/.opentop/auth`
+- real OpenRouter OAuth connect, exchange, and disconnect flow through the local Web UI
+- real OpenAI Codex OAuth connect, exchange, and disconnect flow through the local Web UI
+- schema-versioned local database migrations through `opentop_meta`
+- automated package tests for core, providers, git, and db
+- CI workflow that runs `pnpm verify`
+- in-repo sandbox example and provider setup recipes
 - local CLI linking through `pnpm cli:link`
 - a local sandbox repository for testing OpenTop against an external target repo
 
@@ -32,10 +54,17 @@ create ticket
 -> list ticket
 -> classify ticket
 -> build controlled prompt
+-> review and approve prompt when required
+-> generate and review plan when the workflow is plan-first
+-> generate worker plan and inspect work items when a feature is split into implementation slices
+-> run ready work items sequentially across isolated or shared workspaces
 -> start execution
 -> prepare or reuse branch
 -> run provider
--> inspect execution
+-> inspect execution checks, diff, risk summary, and review status
+-> review output and trigger follow-up execution when needed
+-> approve or reject code-changing executions before they count as done
+-> create a draft pull request from an approved execution
 ```
 
 The Web UI now shows the same stored data:
@@ -44,6 +73,10 @@ The Web UI now shows the same stored data:
 Board
 -> Ticket detail
 -> Prompt preview
+-> Prompt review, history, and diff
+-> Plan review, history, and diff
+-> Worker plan generation, history, and work-item inspection
+-> Worker plan run controls, integration summary, and per-work-item latest executions
 -> Execution history
 -> Execution detail
 -> Settings
@@ -88,6 +121,10 @@ Current commands include:
 - `opentop providers setup`
 - `opentop tickets create/list`
 - `opentop executions list/show`
+- `opentop worker-plans show`
+- `opentop worker-plans run`
+- `opentop work-items list/show`
+- `opentop work-items run`
 - `opentop classify`
 - `opentop prompt`
 - `opentop run`
@@ -103,7 +140,14 @@ The API exposes real local data for Web:
 - tickets
 - ticket detail
 - prompt preview
+- prompt review state and mutation endpoints
+- plan review state and mutation endpoints
+- worker-plan generation and work-item inspection endpoints
+- worker-plan and work-item execution endpoints
 - execution start with branch preparation and provider run
+- execution review approval/rejection endpoints
+- draft pull-request creation endpoint for approved executions
+- OAuth connect, exchange, and disconnect endpoints for hosted providers
 - executions
 
 The API listens on port `4317` by default.
@@ -113,22 +157,24 @@ The API listens on port `4317` by default.
 The Web UI currently has:
 
 - `/`: execution board
-- `/tickets/[ticketId]`: ticket detail, classification, prompt preview, executions
-- `/executions/[executionId]`: execution detail, prompt snapshot, execution logs, and changed files
-- `/settings`: branch policy settings plus provider health and compatibility warnings
+- `/tickets/[ticketId]`: ticket detail, classification, prompt preview, prompt review status, prompt history, prompt diff, plan review status, plan history, plan diff, worker plan generation/history, worker-plan run controls, work-item inspection, and executions
+- `/tickets/[ticketId]`: classification now includes task type, detected signals, provider/model suggestion, reasoning, and prompt approval requirement
+- `/executions/[executionId]`: execution detail, prompt snapshot, structured review output, checks, execution logs, changed files, diff review, risk summary, review decision actions, and draft PR creation/output
+- `/settings`: branch policy settings plus provider health, compatibility warnings, and OAuth connection status
+- `/settings`: context profile mode, active profile IDs, and prompt budget settings
 - `/settings`: provider setup form for type, connection method, and model tiers
+- `/settings/oauth/callback`: local OAuth callback completion and redirect back into Settings
 
 ## Not Implemented Yet
 
 OpenTop does not yet:
 
 - import real GitHub Issues into the local store
-- run configured build/test commands as part of execution
-- collect real changed files from provider output
-- create draft pull requests
 - stream execution logs
-- complete OAuth connect flow
-- runtime adapters for API-key and local-model providers such as OpenAI API or Ollama
+- apply API-provider output as local workspace patches
+- runtime adapters for local-model providers such as Ollama
+- AI-assisted classifier pass on top of the deterministic routing baseline
+- parallel worker execution across multiple work items
 - support multi-user operation
 - support cloud workers
 - support Jira, Linear, Trello, or Azure DevOps imports
@@ -143,4 +189,14 @@ The local database lives in:
 
 This state directory is ignored by Git and should not be committed.
 
+Sequential worker-plan execution uses Git worktrees outside the target repository under a sibling `.opentop-worktrees/` directory so independent work-item branches can accumulate changes without dirtying the root working tree.
+
+Successful workspace-changing executions no longer count as effectively done on their own. They enter review with stored check runs, diff summaries, and a `pending` execution review status until a human explicitly approves or rejects them. Once approved, OpenTop can push the execution branch and open a GitHub draft pull request using `GITHUB_TOKEN` or `GH_TOKEN`.
+
 The global `opentop` command is currently a local development link to the built CLI in this repo.
+
+OAuth credentials now stay outside the repository in `~/.opentop/auth/`. OpenRouter is the fully supported hosted OAuth runtime path today. OpenAI Codex OAuth is implemented as a real connect/disconnect flow, but OpenTop intentionally keeps it out of the supported runtime set and points users toward `codex-cli` or `openai-api` instead. Providers that only support API keys today, such as Anthropic, remain explicitly unsupported for OAuth in OpenTop rather than appearing half-connected.
+
+The local database now carries a tracked schema version in `opentop_meta`, and package-level tests cover the core orchestration path plus provider, git, and database hardening checks.
+
+OpenAI Codex OAuth can now be connected and inspected, but OpenTop intentionally does not treat it as a supported execution runtime. For ChatGPT/Codex subscription access, prefer `codex-cli`. For direct OpenAI API execution, prefer `openai-api` with an API key.

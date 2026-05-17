@@ -19,7 +19,13 @@ import {
   type OpenTopProjectContext,
   type Ticket
 } from "@opentop/core";
-import { createSqliteExecutionRepository, createSqliteTicketRepository } from "@opentop/db";
+import {
+  createSqliteCheckRunRepository,
+  createSqliteExecutionRepository,
+  createSqlitePlanArtifactRepository,
+  createSqlitePromptReviewRepository,
+  createSqliteTicketRepository
+} from "@opentop/db";
 import { getRepositoryStatus, GitExecutionWorkspace, type RepositoryStatus } from "@opentop/git";
 import { createProviderAdapter } from "@opentop/providers";
 
@@ -366,7 +372,9 @@ async function inspectSelectedTicket(
     };
   }
 
-  const prompt = await buildPromptForStoredTicket(ticketRepository, state.config, state.projectContext, ticket.id);
+  const prompt = await buildPromptForStoredTicket(ticketRepository, state.config, state.projectContext, ticket.id, {
+    planArtifactRepository: await createSqlitePlanArtifactRepository({ startDirectory: state.targetDirectory })
+  });
   return {
     ...state,
     ticketInspection: { mode, prompt },
@@ -384,20 +392,29 @@ async function runSelectedTicket(state: DashboardState): Promise<DashboardState>
     };
   }
 
-  const [ticketRepository, executionRepository, repositoryState] = await Promise.all([
+  const [ticketRepository, promptReviewRepository, planArtifactRepository, executionRepository, checkRunRepository, repositoryState] = await Promise.all([
     createSqliteTicketRepository({ startDirectory: state.targetDirectory }),
+    createSqlitePromptReviewRepository({ startDirectory: state.targetDirectory }),
+    createSqlitePlanArtifactRepository({ startDirectory: state.targetDirectory }),
     createSqliteExecutionRepository({ startDirectory: state.targetDirectory }),
+    createSqliteCheckRunRepository({ startDirectory: state.targetDirectory }),
     getRepositoryStatus(state.targetDirectory)
   ]);
 
   const executionPlan = await planExecutionForStoredTicket(ticketRepository, state.config, ticket.id);
-  const provider = createProviderAdapter(
+  const provider = await createProviderAdapter(
     executionPlan.providerId,
-    getProvider(state.config, executionPlan.providerId)
+    getProvider(state.config, executionPlan.providerId),
+    {
+      repositoryPath: state.targetDirectory
+    }
   );
   const result = await startExecutionForStoredTicket(
     ticketRepository,
+    promptReviewRepository,
+    planArtifactRepository,
     executionRepository,
+    checkRunRepository,
     new GitExecutionWorkspace(state.targetDirectory),
     provider,
     state.config,
@@ -413,7 +430,7 @@ async function runSelectedTicket(state: DashboardState): Promise<DashboardState>
       ...refreshed,
       message: {
         tone: "warning",
-        text: `Execution blocked: ${result.branchResolution.reason}`
+        text: `Execution blocked (${result.blocker}): ${result.reason}`
       }
     };
   }

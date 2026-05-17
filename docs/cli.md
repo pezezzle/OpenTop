@@ -8,20 +8,10 @@ The CLI is not the primary product surface. The Web UI is the main interface for
 
 Install or link the CLI from the OpenTop repository that contains the CLI source code.
 
-Windows:
+All supported local development platforms:
 
 ```powershell
 pnpm cli:link
-```
-
-`pnpm cli:link` currently supports Windows only.
-
-macOS / Linux:
-
-```bash
-cd apps/cli
-npm link
-cd ../..
 ```
 
 This exposes:
@@ -206,3 +196,9 @@ opentop config set execution.defaultBranchPolicy reuse-current --scope user
 - provider command or API-key env
 - base URL or OAuth metadata
 - default `cheap`, `strong`, and `local` model tiers
+
+Root verification command:
+
+```powershell
+pnpm verify
+```

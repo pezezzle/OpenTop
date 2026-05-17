@@ -80,6 +80,7 @@ See [docs/opentop-project-context-and-memory.md](docs/opentop-project-context-an
 ```bash
 npm install -g pnpm@9.15.0
 pnpm install
+pnpm verify
 pnpm build
 pnpm cli:dev -- status
 pnpm cli:dev -- tickets create --title "Fix login button" --labels bug
@@ -100,8 +101,8 @@ In local development, that target repository is often a separate sandbox such as
 You can target the current repository or a separate sandbox repository with `--repo`:
 
 ```bash
-pnpm cli:dev -- --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox status
-pnpm cli:dev -- --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox tickets list
+pnpm cli:dev --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox status
+pnpm cli:dev --repo C:\\Users\\ronny\\Coding\\OpenTop\\OpenTop-Sandbox tickets list
 ```
 
 When you run `opentop` from inside a target repository, OpenTop uses the current working directory as the target by default.
@@ -115,18 +116,10 @@ opentop dashboard
 
 To expose a real local `opentop` command on your machine, install or link it from the OpenTop repository that contains the CLI source code.
 
-Windows:
+All supported local development platforms:
 
 ```bash
 pnpm cli:link
-```
-
-macOS / Linux:
-
-```bash
-cd apps/cli
-npm link
-cd ../..
 ```
 
 Then you can call:
@@ -193,6 +186,12 @@ provider type
 + model tier mapping
 ```
 
+OpenTop is provider-neutral. Codex CLI is supported as a local external CLI adapter, but it is not the foundation of the architecture. API-backed providers, local CLIs, local model servers, and custom commands should all fit behind the same provider boundary.
+
+Project config should store only non-secret provider metadata such as provider type, connection method, base URL, and model routing. API keys, OAuth tokens, refresh tokens, and user-specific credentials belong in environment variables, user scope, or a secret store.
+
+API-key provider runtimes are the first durable provider target. OpenTop includes an OpenAI-compatible API-key runtime baseline for providers such as OpenAI, DeepSeek, and OpenRouter. OpenTop also supports real PKCE-based OAuth connect flows for `openrouter-api` and `openai-codex`, with credentials stored in `~/.opentop/auth/` instead of project config. Today, `openrouter-api` is a supported hosted OAuth runtime path, while `openai-codex` is intentionally treated as a connected-but-non-runtime path until OpenTop grows a more native Codex integration. Providers that do not yet have a real OAuth path are shown as unsupported rather than half-implemented.
+
 Example project config:
 
 ```yaml
@@ -208,7 +207,16 @@ providers:
     connection:
       method: api_key
       apiKeyEnv: OPENAI_API_KEY
+
+  deepseek:
+    type: deepseek-api
+    connection:
+      method: api_key
+      apiKeyEnv: DEEPSEEK_API_KEY
 ```
+
+See [0005: Provider auth and runtime architecture](docs/decisions/0005-provider-auth-and-runtime-architecture.md).
+Provider setup examples live in [docs/provider-recipes.md](docs/provider-recipes.md).
 
 ## Branch Policy
 

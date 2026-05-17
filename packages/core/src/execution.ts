@@ -4,15 +4,21 @@ import type { ExecutionPlan, Ticket } from "./types.js";
 
 export function createExecutionPlan(ticket: Ticket, config: OpenTopConfig): ExecutionPlan {
   const classification = ticket.classification ?? classifyTicket(ticket, config);
-  const profile = getAgentProfile(config, classification.suggestedProfile);
-  const model = getModel(config, profile.modelTier);
+  const baseProfile = getAgentProfile(config, classification.suggestedProfile);
+  const fallbackModel = getModel(config, classification.suggestedModelTier);
+  const profile = {
+    ...baseProfile,
+    mode: classification.suggestedMode,
+    modelTier: classification.suggestedModelTier,
+    requiresApproval: classification.approvalRequired
+  };
 
   return {
     ticket,
     classification,
     profile,
-    providerId: model.provider,
-    modelId: model.model,
+    providerId: classification.suggestedProviderId ?? fallbackModel.provider,
+    modelId: classification.suggestedModel ?? fallbackModel.model,
     branchName: createBranchName(ticket)
   };
 }

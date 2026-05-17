@@ -1,14 +1,52 @@
-import { updateBranchPolicyAction, updateProviderAction } from "../actions";
-import { getConfig, getProviders, getStatus } from "../../lib/opentop-api";
+import {
+  disconnectProviderOauthAction,
+  startProviderOauthAction,
+  updateBranchPolicyAction,
+  updateContextSettingsAction,
+  updateProviderAction
+} from "../actions";
+import { getConfig, getContext, getProviders, getStatus } from "../../lib/opentop-api";
 
 export const dynamic = "force-dynamic";
 
 const policies = ["new", "reuse-current", "manual", "none"] as const;
-const providerTypes = ["codex-cli", "openai-api", "openrouter-api", "custom-shell", "ollama"] as const;
+const providerTypes = [
+  "codex-cli",
+  "openai-codex",
+  "openai-api",
+  "deepseek-api",
+  "openrouter-api",
+  "anthropic-api",
+  "custom-shell",
+  "ollama"
+] as const;
 const connectionMethods = ["local_cli", "api_key", "oauth", "custom_command", "local_model"] as const;
+const profileModes = ["project-first", "profile-first", "project-only", "profile-only", "manual"] as const;
 
-export default async function SettingsPage() {
-  const [config, status, providerResponse] = await Promise.all([getConfig(), getStatus(), getProviders()]);
+interface SettingsPageProps {
+  searchParams?: Promise<{
+    oauth?: string;
+    provider?: string;
+    message?: string;
+  }>;
+}
+
+export default async function SettingsPage({ searchParams }: SettingsPageProps) {
+  const params = (await searchParams) ?? {};
+  const [config, context, status, providerResponse] = await Promise.all([
+    getConfig(),
+    getContext(),
+    getStatus(),
+    getProviders()
+  ]);
+  const oauthNotice =
+    params.oauth === "connected"
+      ? { tone: "success", text: `Provider "${params.provider ?? ""}" connected successfully.` }
+      : params.oauth === "disconnected"
+        ? { tone: "info", text: `Provider "${params.provider ?? ""}" was disconnected.` }
+        : params.oauth === "error"
+          ? { tone: "error", text: params.message ?? "OAuth connection failed." }
+          : null;
 
   return (
     <main className="detail-shell">
@@ -22,6 +60,8 @@ export default async function SettingsPage() {
           </p>
         </div>
       </header>
+
+      {oauthNotice ? <p className={`notice notice-${oauthNotice.tone}`}>{oauthNotice.text}</p> : null}
 
       <section className="detail-grid">
         <article className="panel">
@@ -66,6 +106,122 @@ export default async function SettingsPage() {
               </form>
             ))}
           </div>
+        </article>
+
+        <article className="panel panel-span-2">
+          <h2>Context Profiles</h2>
+          <p className="subline">
+            Active prompt context is layered on top of the project and memory. Project rules still win when they
+            conflict with profile preferences.
+          </p>
+
+          <dl className="stacked-meta">
+            <div>
+              <dt>Profile mode</dt>
+              <dd>{context.context.effective.profileMode}</dd>
+            </div>
+            <div>
+              <dt>Learned profiles</dt>
+              <dd>{context.context.effective.learnedProfiles.join(", ") || "(none)"}</dd>
+            </div>
+            <div>
+              <dt>User profiles</dt>
+              <dd>{context.context.effective.userProfiles.join(", ") || "(none)"}</dd>
+            </div>
+            <div>
+              <dt>Budget</dt>
+              <dd>
+                {context.context.effective.maxProfileSections} sections / {context.context.effective.maxPromptProfileWords} words
+              </dd>
+            </div>
+            <div>
+              <dt>Loaded profiles</dt>
+              <dd>
+                {context.context.activeProfiles.length === 0
+                  ? "(none)"
+                  : context.context.activeProfiles
+                      .map((profile) => `${profile.displayName} (${profile.type})`)
+                      .join(", ")}
+              </dd>
+            </div>
+            <div>
+              <dt>Available profiles</dt>
+              <dd>
+                {context.context.availableProfiles.length === 0
+                  ? "(none found under ~/.opentop)"
+                  : context.context.availableProfiles
+                      .map((profile) => `${profile.displayName} (${profile.id})`)
+                      .join(", ")}
+              </dd>
+            </div>
+          </dl>
+
+          <form action={updateContextSettingsAction} className="stack-form provider-form">
+            <div className="field-grid">
+              <label className="field">
+                <span>Scope</span>
+                <select defaultValue="project" name="scope">
+                  <option value="project">project</option>
+                  <option value="user">user</option>
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Profile mode</span>
+                <select defaultValue={context.context.effective.profileMode} name="profileMode">
+                  {profileModes.map((mode) => (
+                    <option key={mode} value={mode}>
+                      {mode}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Learned profiles</span>
+                <input
+                  defaultValue={context.context.effective.learnedProfiles.join(", ")}
+                  name="learnedProfiles"
+                  placeholder="fmwerkstatt"
+                  type="text"
+                />
+              </label>
+
+              <label className="field">
+                <span>User profiles</span>
+                <input
+                  defaultValue={context.context.effective.userProfiles.join(", ")}
+                  name="userProfiles"
+                  placeholder="ronny"
+                  type="text"
+                />
+              </label>
+
+              <label className="field">
+                <span>Max profile words</span>
+                <input
+                  defaultValue={String(context.context.effective.maxPromptProfileWords)}
+                  min="100"
+                  name="maxPromptProfileWords"
+                  step="50"
+                  type="number"
+                />
+              </label>
+
+              <label className="field">
+                <span>Max profile sections</span>
+                <input
+                  defaultValue={String(context.context.effective.maxProfileSections)}
+                  min="1"
+                  name="maxProfileSections"
+                  step="1"
+                  type="number"
+                />
+              </label>
+            </div>
+
+            <button type="submit">Save context settings</button>
+          </form>
         </article>
 
         <article className="panel panel-span-2">
@@ -116,11 +272,28 @@ export default async function SettingsPage() {
                     </dd>
                   </div>
                   <div>
+                    <dt>Connection state</dt>
+                    <dd>{provider.connectionState.label}</dd>
+                  </div>
+                  <div>
                     <dt>Model tiers</dt>
                     <dd>
                       {provider.modelTiers.length === 0
                         ? "(none)"
                         : provider.modelTiers.map((modelTier) => `${modelTier.tier} -> ${modelTier.model}`).join(", ")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Capabilities</dt>
+                    <dd>
+                      {[
+                        ...provider.capabilities.authMethods,
+                        provider.capabilities.supportsStructuredOutput ? "structured" : "",
+                        provider.capabilities.supportsLocalWorkspace ? "workspace" : "",
+                        provider.capabilities.supportsMultiRunOrchestration ? "multi-run" : ""
+                      ]
+                        .filter(Boolean)
+                        .join(", ") || "(none)"}
                     </dd>
                   </div>
                 </dl>
@@ -129,13 +302,40 @@ export default async function SettingsPage() {
                   {provider.issues.length === 0 ? (
                     <p className="notice notice-success">No provider issues detected.</p>
                   ) : (
-                    provider.issues.map((issue) => (
-                      <p className={`notice notice-${issue.severity}`} key={`${provider.providerId}-${issue.code}`}>
+                    provider.issues.map((issue, issueIndex) => (
+                      <p
+                        className={`notice notice-${issue.severity}`}
+                        key={`${provider.providerId}-${issue.code}-${issueIndex}`}
+                      >
                         <strong>{issue.severity}</strong> · {issue.message}
                       </p>
                     ))
                   )}
                 </div>
+
+                {provider.connectionMethod === "oauth" ? (
+                  <div className="button-stack">
+                    <p className="subline">
+                      {provider.connectionState.connectedAt
+                        ? `Connected at ${provider.connectionState.connectedAt}`
+                        : provider.connectionState.lastError ?? "Connect this provider from OpenTop without writing secrets into project config."}
+                    </p>
+                    {provider.connectionState.status !== "connected" ? (
+                      <form action={startProviderOauthAction}>
+                        <input name="providerId" type="hidden" value={provider.providerId} />
+                        <button disabled={!provider.connectionState.supported} type="submit">
+                          Connect provider
+                        </button>
+                      </form>
+                    ) : null}
+                    {provider.connectionState.status === "connected" ? (
+                      <form action={disconnectProviderOauthAction}>
+                        <input name="providerId" type="hidden" value={provider.providerId} />
+                        <button type="submit">Disconnect provider</button>
+                      </form>
+                    ) : null}
+                  </div>
+                ) : null}
               </section>
             ))}
           </div>
@@ -145,6 +345,12 @@ export default async function SettingsPage() {
           <h2>Provider Setup</h2>
           <p className="subline">
             Configure provider type, connection method, and default model tiers without editing YAML by hand.
+          </p>
+          <p className="subline">
+            `codex-cli` currently uses `local_cli`. OpenRouter OAuth is implemented for hosted API access. `openai-codex`
+            can connect a ChatGPT/Codex account for inspection and future native integration, but OpenTop does not currently
+            support it as an execution runtime; use `codex-cli` for subscription access or `openai-api` with an API key.
+            Local patch application is still a later step.
           </p>
 
           <form action={updateProviderAction} className="stack-form provider-form">
@@ -188,7 +394,7 @@ export default async function SettingsPage() {
 
               <label className="field">
                 <span>OAuth provider</span>
-                <input name="oauthProvider" placeholder="openai" type="text" />
+                <input name="oauthProvider" placeholder="openrouter or openai-codex" type="text" />
               </label>
 
               <label className="field">

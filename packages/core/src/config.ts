@@ -3,7 +3,8 @@ import { homedir } from "node:os";
 import { basename, dirname, join, parse as parsePath, resolve } from "node:path";
 import { parse, stringify } from "yaml";
 import { z } from "zod";
-import type { ExecutionBranchPolicy } from "@opentop/shared";
+import type { ComplexityLevel, ExecutionBranchPolicy, ExecutionMode, RiskLevel } from "@opentop/shared";
+import type { ContextProfileMode, ContextSettings, TaskCategory } from "./types.js";
 
 export const providerConnectionMethodSchema = z.enum([
   "local_cli",
@@ -38,34 +39,80 @@ const modelSchema = z.object({
   model: z.string()
 });
 
+const taskCategorySchema = z.enum([
+  "bugfix",
+  "small_change",
+  "feature",
+  "architecture",
+  "refactor",
+  "test",
+  "docs",
+  "security",
+  "migration",
+  "integration"
+] satisfies [TaskCategory, ...TaskCategory[]]);
+
+const riskLevelSchema = z.enum(["low", "medium", "high", "critical"] satisfies [RiskLevel, ...RiskLevel[]]);
+const complexityLevelSchema = z.enum(["low", "medium", "high"] satisfies [ComplexityLevel, ...ComplexityLevel[]]);
+const executionModeSchema = z.enum([
+  "plan_only",
+  "implement_only",
+  "implement_and_test",
+  "plan_then_implement",
+  "review_only",
+  "fix_build",
+  "draft_pr"
+] satisfies [ExecutionMode, ...ExecutionMode[]]);
+
 const agentProfileSchema = z.object({
   description: z.string().optional(),
   modelTier: z.string(),
-  mode: z.enum([
-    "plan_only",
-    "implement_only",
-    "implement_and_test",
-    "plan_then_implement",
-    "review_only",
-    "fix_build",
-    "draft_pr"
-  ]),
+  mode: executionModeSchema,
   requiresApproval: z.boolean().default(false),
   allowedCommands: z.array(z.string()).default([])
 });
 
 const executionBranchPolicySchema = z.enum(["new", "reuse-current", "manual", "none"]);
+const contextProfileModeSchema = z.enum([
+  "project-first",
+  "profile-first",
+  "project-only",
+  "profile-only",
+  "manual"
+] satisfies [ContextProfileMode, ...ContextProfileMode[]]);
+
+const contextSettingsSchema = z.object({
+  learnedProfiles: z.array(z.string()).default([]),
+  userProfiles: z.array(z.string()).default([]),
+  profileMode: contextProfileModeSchema.default("project-first"),
+  maxPromptProfileWords: z.number().int().positive().default(900),
+  maxProfileSections: z.number().int().positive().default(6)
+});
+
+const routingActionSchema = z.object({
+  profile: z.string().optional(),
+  modelTier: z.string().optional(),
+  mode: executionModeSchema.optional(),
+  requiresApproval: z.boolean().optional()
+});
 
 const routingRuleSchema = z.union([
   z.object({
     when: z.object({
       labels: z.array(z.string()).optional(),
-      keywords: z.array(z.string()).optional()
+      keywords: z.array(z.string()).optional(),
+      taskTypes: z.array(taskCategorySchema).optional(),
+      risk: z.array(riskLevelSchema).optional(),
+      complexity: z.array(complexityLevelSchema).optional(),
+      affectedAreas: z.array(z.string()).optional()
     }),
-    profile: z.string()
+    profile: z.string().optional(),
+    modelTier: z.string().optional(),
+    mode: executionModeSchema.optional(),
+    requiresApproval: z.boolean().optional()
   }),
   z.object({
-    default: z.object({
+    default: routingActionSchema.extend({
       profile: z.string()
     })
   })
@@ -85,6 +132,7 @@ export const openTopConfigSchema = z.object({
   execution: z.object({
     defaultBranchPolicy: executionBranchPolicySchema.default("reuse-current")
   }),
+  context: contextSettingsSchema.default(defaultContextSettings()),
   commands: z.record(z.string()).default({})
 });
 
@@ -105,11 +153,19 @@ export interface ProviderSetupInput {
   modelMappings?: Partial<Record<string, string>>;
 }
 
+export interface ContextSettingsInput {
+  learnedProfiles: string[];
+  userProfiles: string[];
+  profileMode: ContextProfileMode;
+  maxPromptProfileWords: number;
+  maxProfileSections: number;
+}
+
 export async function loadOpenTopConfig(path?: string, startDirectory = process.cwd()): Promise<OpenTopConfig> {
   const configPath = path ? resolve(path) : await findOpenTopConfig(startDirectory);
   const [userConfig, projectConfig] = await Promise.all([loadUserOpenTopConfig(), loadYamlFile(configPath)]);
 
-  return openTopConfigSchema.parse(mergeConfigObjects(userConfig, projectConfig));
+  return applyOpenTopConfigDefaults(openTopConfigSchema.parse(mergeConfigObjects(userConfig, projectConfig)));
 }
 
 export async function findOpenTopConfig(startDirectory = process.cwd()): Promise<string> {
@@ -172,7 +228,10 @@ export function getProvider(config: OpenTopConfig, id: string) {
   };
 }
 
-export async function loadUserOpenTopConfig(): Promise<{ execution?: { defaultBranchPolicy?: ExecutionBranchPolicy } }> {
+export async function loadUserOpenTopConfig(): Promise<{
+  execution?: { defaultBranchPolicy?: ExecutionBranchPolicy };
+  context?: Partial<ContextSettings>;
+}> {
   const userConfigPath = getUserOpenTopConfigPath();
   const raw = await loadOptionalYamlFile(userConfigPath);
 
@@ -181,7 +240,8 @@ export async function loadUserOpenTopConfig(): Promise<{ execution?: { defaultBr
       .object({
         defaultBranchPolicy: executionBranchPolicySchema.optional()
       })
-      .optional()
+      .optional(),
+    context: contextSettingsSchema.partial().optional()
   });
 
   return schema.parse(raw ?? {});
@@ -214,38 +274,122 @@ export async function getBranchPolicySettings(startDirectory = process.cwd()): P
 }
 
 export async function getConfigValue(
-  key: "execution.defaultBranchPolicy",
+  key: "execution.defaultBranchPolicy" | "context.profileMode",
   scope: OpenTopConfigScope,
   startDirectory = process.cwd()
 ): Promise<string | undefined> {
   if (scope === "effective") {
     const config = await loadOpenTopConfig(undefined, startDirectory);
-    return config.execution.defaultBranchPolicy;
+    return key === "execution.defaultBranchPolicy" ? config.execution.defaultBranchPolicy : config.context.profileMode;
   }
 
   if (scope === "project") {
     const raw = await loadYamlFile(await findOpenTopConfig(startDirectory));
-    return readBranchPolicyValue(raw);
+    return key === "execution.defaultBranchPolicy" ? readBranchPolicyValue(raw) : readContextProfileModeValue(raw);
   }
 
   const userConfig = await loadUserOpenTopConfig();
-  return userConfig.execution?.defaultBranchPolicy;
+  return key === "execution.defaultBranchPolicy"
+    ? userConfig.execution?.defaultBranchPolicy
+    : userConfig.context?.profileMode;
+}
+
+export async function getContextSettingsScopes(startDirectory = process.cwd()): Promise<{
+  effective: ContextSettings;
+  project: Partial<ContextSettings> | null;
+  user: Partial<ContextSettings> | null;
+}> {
+  const [effectiveConfig, projectRawConfig, userConfig] = await Promise.all([
+    loadOpenTopConfig(undefined, startDirectory),
+    loadYamlFile(await findOpenTopConfig(startDirectory)),
+    loadUserOpenTopConfig()
+  ]);
+
+  return {
+    effective: effectiveConfig.context,
+    project: readContextSettingsFromRaw(projectRawConfig),
+    user: userConfig.context ?? null
+  };
 }
 
 export async function setConfigValue(
-  key: "execution.defaultBranchPolicy",
-  value: ExecutionBranchPolicy,
+  key: "execution.defaultBranchPolicy" | "context.profileMode",
+  value:
+    | ExecutionBranchPolicy
+    | "project-first"
+    | "profile-first"
+    | "project-only"
+    | "profile-only"
+    | "manual",
   scope: Exclude<OpenTopConfigScope, "effective">,
   startDirectory = process.cwd()
 ): Promise<string> {
-  if (key !== "execution.defaultBranchPolicy") {
+  if (key !== "execution.defaultBranchPolicy" && key !== "context.profileMode") {
     throw new Error(`Unsupported config key "${key}".`);
   }
 
   const targetPath =
     scope === "project" ? await findOpenTopConfig(startDirectory) : getUserOpenTopConfigPath();
   const raw = (await loadOptionalYamlFile(targetPath)) ?? {};
-  const nextConfig = setNestedValue(raw, ["execution", "defaultBranchPolicy"], value);
+  const nextConfig =
+    key === "execution.defaultBranchPolicy"
+      ? setNestedValue(raw, ["execution", "defaultBranchPolicy"], value)
+      : setNestedValue(raw, ["context", "profileMode"], value);
+
+  await mkdir(dirname(targetPath), { recursive: true });
+  await writeFile(targetPath, stringify(nextConfig));
+  return targetPath;
+}
+
+export async function saveContextSettings(
+  input: ContextSettingsInput,
+  scope: Exclude<OpenTopConfigScope, "effective">,
+  startDirectory = process.cwd()
+): Promise<string> {
+  const targetPath =
+    scope === "project" ? await resolveProjectConfigPath(startDirectory) : getUserOpenTopConfigPath();
+  const raw = ((await loadOptionalYamlFile(targetPath)) ?? {}) as Record<string, unknown>;
+  const nextConfig = isObject(raw) ? { ...raw } : {};
+  nextConfig.context = {
+    learnedProfiles: input.learnedProfiles,
+    userProfiles: input.userProfiles,
+    profileMode: input.profileMode,
+    maxPromptProfileWords: input.maxPromptProfileWords,
+    maxProfileSections: input.maxProfileSections
+  };
+
+  if (scope === "project") {
+    nextConfig.project = isObject(nextConfig.project)
+      ? {
+          name:
+            typeof nextConfig.project.name === "string" && nextConfig.project.name.trim().length > 0
+              ? nextConfig.project.name
+              : deriveProjectName(startDirectory),
+          defaultBranch:
+            typeof nextConfig.project.defaultBranch === "string" && nextConfig.project.defaultBranch.trim().length > 0
+              ? nextConfig.project.defaultBranch
+              : "main"
+        }
+      : {
+          name: deriveProjectName(startDirectory),
+          defaultBranch: "main"
+        };
+    nextConfig.providers = isObject(nextConfig.providers) ? nextConfig.providers : {};
+    nextConfig.models = isObject(nextConfig.models) ? nextConfig.models : {};
+    nextConfig.agentProfiles = isObject(nextConfig.agentProfiles) ? nextConfig.agentProfiles : defaultAgentProfiles();
+    nextConfig.routing = isObject(nextConfig.routing) ? nextConfig.routing : defaultRouting();
+    nextConfig.commands = isObject(nextConfig.commands) ? nextConfig.commands : defaultCommands();
+    nextConfig.execution = isObject(nextConfig.execution)
+      ? {
+          defaultBranchPolicy:
+            typeof nextConfig.execution.defaultBranchPolicy === "string"
+              ? nextConfig.execution.defaultBranchPolicy
+              : "reuse-current"
+        }
+      : {
+          defaultBranchPolicy: "reuse-current"
+        };
+  }
 
   await mkdir(dirname(targetPath), { recursive: true });
   await writeFile(targetPath, stringify(nextConfig));
@@ -317,7 +461,8 @@ export function createStarterConfigObject(projectName = "OpenTop"): Record<strin
     commands: defaultCommands(),
     execution: {
       defaultBranchPolicy: "reuse-current"
-    }
+    },
+    context: defaultContextSettings()
   };
 }
 
@@ -361,6 +506,11 @@ function mergeConfigObjects(userConfig: unknown, projectConfig: unknown): unknow
     execution: {
       ...(isObject(userConfig.execution) ? userConfig.execution : {}),
       ...(isObject(projectConfig.execution) ? projectConfig.execution : {})
+    },
+    context: {
+      ...defaultContextSettings(),
+      ...(isObject(userConfig.context) ? userConfig.context : {}),
+      ...(isObject(projectConfig.context) ? projectConfig.context : {})
     }
   };
 }
@@ -430,6 +580,27 @@ function defaultAgentProfiles(): Record<string, unknown> {
       requiresApproval: false,
       allowedCommands: ["pnpm test", "pnpm build"]
     },
+    docs: {
+      description: "Documentation and content updates",
+      modelTier: "cheap",
+      mode: "implement_only",
+      requiresApproval: false,
+      allowedCommands: ["pnpm build"]
+    },
+    test: {
+      description: "Test creation and coverage improvements",
+      modelTier: "cheap",
+      mode: "implement_and_test",
+      requiresApproval: false,
+      allowedCommands: ["pnpm test", "pnpm build"]
+    },
+    refactor: {
+      description: "Scoped refactors and cleanup work",
+      modelTier: "strong",
+      mode: "plan_then_implement",
+      requiresApproval: true,
+      allowedCommands: ["pnpm test", "pnpm build"]
+    },
     feature: {
       description: "Standard feature implementation",
       modelTier: "strong",
@@ -452,13 +623,31 @@ function defaultRouting(): Record<string, unknown> {
     rules: [
       {
         when: {
-          labels: ["bug"]
+          taskTypes: ["bugfix"]
         },
         profile: "bugfix"
       },
       {
         when: {
-          keywords: ["architecture", "auth", "security", "migration", "multi-tenant"]
+          taskTypes: ["docs"]
+        },
+        profile: "docs"
+      },
+      {
+        when: {
+          taskTypes: ["test"]
+        },
+        profile: "test"
+      },
+      {
+        when: {
+          taskTypes: ["refactor"]
+        },
+        profile: "refactor"
+      },
+      {
+        when: {
+          taskTypes: ["architecture", "security", "migration"]
         },
         profile: "architecture"
       },
@@ -478,9 +667,43 @@ function defaultCommands(): Record<string, unknown> {
   };
 }
 
+function defaultContextSettings(): ContextSettings {
+  return {
+    learnedProfiles: [],
+    userProfiles: [],
+    profileMode: "project-first",
+    maxPromptProfileWords: 900,
+    maxProfileSections: 6
+  };
+}
+
 function deriveProjectName(startDirectory: string): string {
   const name = basename(resolve(startDirectory));
   return name.length > 0 ? name : "OpenTop Project";
+}
+
+function readContextProfileModeValue(raw: unknown): ContextProfileMode | undefined {
+  if (!isObject(raw) || !isObject(raw.context) || typeof raw.context.profileMode !== "string") {
+    return undefined;
+  }
+
+  return raw.context.profileMode as ContextProfileMode;
+}
+
+function readContextSettingsFromRaw(raw: unknown): Partial<ContextSettings> | null {
+  if (!isObject(raw) || !isObject(raw.context)) {
+    return null;
+  }
+
+  const context = raw.context;
+  return {
+    learnedProfiles: Array.isArray(context.learnedProfiles) ? context.learnedProfiles.filter(isString) : [],
+    userProfiles: Array.isArray(context.userProfiles) ? context.userProfiles.filter(isString) : [],
+    profileMode: typeof context.profileMode === "string" ? (context.profileMode as ContextProfileMode) : undefined,
+    maxPromptProfileWords:
+      typeof context.maxPromptProfileWords === "number" ? context.maxPromptProfileWords : undefined,
+    maxProfileSections: typeof context.maxProfileSections === "number" ? context.maxProfileSections : undefined
+  };
 }
 
 function normalizeProviderInput(raw: unknown): unknown {
@@ -531,6 +754,10 @@ function normalizeProviderInput(raw: unknown): unknown {
           ? connection.baseUrl
           : undefined
   };
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
 }
 
 function inferConnectionMethod(type: string, raw: Record<string, unknown>): ProviderConnectionMethod {
@@ -591,4 +818,100 @@ function isMissingFileError(error: unknown): boolean {
     "code" in error &&
     (error as { code: unknown }).code === "ENOENT"
   );
+}
+
+function applyOpenTopConfigDefaults(config: OpenTopConfig): OpenTopConfig {
+  return {
+    ...config,
+    agentProfiles: {
+      ...typedDefaultAgentProfiles(),
+      ...config.agentProfiles
+    },
+    routing: {
+      rules: withDefaultRoutingRules(config.routing.rules)
+    },
+    commands: {
+      ...typedDefaultCommands(),
+      ...config.commands
+    }
+  };
+}
+
+function withDefaultRoutingRules(rules: OpenTopConfig["routing"]["rules"]): OpenTopConfig["routing"]["rules"] {
+  const defaultRule = rules.find((rule) => "default" in rule);
+  const nonDefaultRules = rules.filter((rule) => !("default" in rule));
+  const coveredTaskTypes = new Set(
+    nonDefaultRules.flatMap((rule) => ("when" in rule ? (rule.when.taskTypes ?? []) : []))
+  );
+
+  const normalizedRules = [...nonDefaultRules];
+
+  if (!coveredTaskTypes.has("bugfix")) {
+    normalizedRules.push({
+      when: {
+        taskTypes: ["bugfix"]
+      },
+      profile: "bugfix"
+    });
+  }
+
+  if (!coveredTaskTypes.has("docs")) {
+    normalizedRules.push({
+      when: {
+        taskTypes: ["docs"]
+      },
+      profile: "docs"
+    });
+  }
+
+  if (!coveredTaskTypes.has("test")) {
+    normalizedRules.push({
+      when: {
+        taskTypes: ["test"]
+      },
+      profile: "test"
+    });
+  }
+
+  if (!coveredTaskTypes.has("refactor")) {
+    normalizedRules.push({
+      when: {
+        taskTypes: ["refactor"]
+      },
+      profile: "refactor"
+    });
+  }
+
+  if (
+    !coveredTaskTypes.has("architecture") &&
+    !coveredTaskTypes.has("security") &&
+    !coveredTaskTypes.has("migration")
+  ) {
+    normalizedRules.push({
+      when: {
+        taskTypes: ["architecture", "security", "migration"]
+      },
+      profile: "architecture"
+    });
+  }
+
+  if (defaultRule) {
+    normalizedRules.push(defaultRule);
+  } else {
+    normalizedRules.push({
+      default: {
+        profile: "feature"
+      }
+    });
+  }
+
+  return normalizedRules;
+}
+
+function typedDefaultAgentProfiles(): OpenTopConfig["agentProfiles"] {
+  return z.record(agentProfileSchema).parse(defaultAgentProfiles());
+}
+
+function typedDefaultCommands(): OpenTopConfig["commands"] {
+  return z.record(z.string()).parse(defaultCommands());
 }

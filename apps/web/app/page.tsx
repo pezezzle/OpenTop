@@ -6,6 +6,10 @@ export const dynamic = "force-dynamic";
 
 const lanes: Array<TicketSummary["workflowStage"]> = ["Inbox", "Classified", "Ready", "Running", "Review", "Done"];
 
+function formatExecutionStatus(status: string): string {
+  return status === "output_ready" ? "output ready for review" : status;
+}
+
 export default async function Home() {
   const [status, ticketResponse, executionResponse, config, providerResponse] = await Promise.all([
     getStatus(),
@@ -117,9 +121,14 @@ export default async function Home() {
                 {executionResponse.executions.slice(0, 4).map((execution) => (
                   <Link className="execution-card" href={`/executions/${execution.id}`} key={execution.id}>
                     <strong>Execution #{execution.id}</strong>
-                    <span>{execution.status}</span>
+                    <span>{formatExecutionStatus(execution.status)}</span>
                     <small>
-                      Ticket #{execution.ticketId} · {execution.branchName}
+                      Ticket #{execution.ticketId} ·{" "}
+                      {execution.artifactKind === "review_output"
+                        ? execution.outputKind
+                          ? `review output · ${execution.outputKind}`
+                          : "review output"
+                        : execution.branchName}
                     </small>
                   </Link>
                 ))}
@@ -149,16 +158,16 @@ export default async function Home() {
                       <p>{ticket.description || "No description provided."}</p>
                       <dl className="ticket-meta">
                         <div>
-                          <dt>Risk</dt>
-                          <dd>{ticket.classification.risk}</dd>
+                          <dt>Task</dt>
+                          <dd>{ticket.classification.taskType}</dd>
                         </div>
                         <div>
                           <dt>Profile</dt>
                           <dd>{ticket.executionPlan.profile.id}</dd>
                         </div>
                         <div>
-                          <dt>Mode</dt>
-                          <dd>{ticket.classification.suggestedMode}</dd>
+                          <dt>Model</dt>
+                          <dd>{ticket.classification.suggestedModelTier}</dd>
                         </div>
                       </dl>
                     </Link>

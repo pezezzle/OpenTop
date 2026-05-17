@@ -1,5 +1,9 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { Octokit } from "@octokit/rest";
-import type { Ticket } from "@opentop/core";
+import type { ExecutionPullRequest, PullRequestDraftInput, PullRequestService, Ticket } from "@opentop/core";
+
+const execFileAsync = promisify(execFile);
 
 export interface GitHubIssueImportOptions {
   token: string;
@@ -27,4 +31,102 @@ export async function importGitHubIssues(options: GitHubIssueImportOptions): Pro
       labels: issue.labels.map((label) => (typeof label === "string" ? label : label.name ?? "")).filter(Boolean),
       status: "inbox"
     }));
+}
+
+export interface GitHubPullRequestServiceOptions {
+  token?: string;
+  remoteName?: string;
+}
+
+export function createGitHubPullRequestService(
+  options: GitHubPullRequestServiceOptions = {}
+): PullRequestService {
+  return {
+    async createDraft(input: PullRequestDraftInput): Promise<ExecutionPullRequest> {
+      const token = options.token ?? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
+
+      if (!token) {
+        throw new Error("Set GITHUB_TOKEN or GH_TOKEN before creating draft pull requests.");
+      }
+
+      const remoteName = options.remoteName ?? "origin";
+      const remoteInfo = await getGitHubRemoteInfo(input.repositoryPath, remoteName);
+      await pushBranchToOrigin(input.repositoryPath, input.headBranch, remoteName);
+
+      const octokit = new Octokit({ auth: token });
+      const response = await octokit.rest.pulls.create({
+        owner: remoteInfo.owner,
+        repo: remoteInfo.repo,
+        base: input.baseBranch,
+        head: input.headBranch,
+        title: input.title,
+        body: input.body,
+        draft: true
+      });
+
+      return {
+        url: response.data.html_url,
+        number: response.data.number,
+        title: response.data.title,
+        body: response.data.body ?? input.body,
+        baseBranch: response.data.base.ref,
+        headBranch: response.data.head.ref,
+        repositoryFullName: remoteInfo.repositoryFullName,
+        isDraft: Boolean(response.data.draft),
+        createdAt: response.data.created_at
+      };
+    }
+  };
+}
+
+async function pushBranchToOrigin(repositoryPath: string, branchName: string, remoteName: string): Promise<void> {
+  await execGit(repositoryPath, ["push", remoteName, `${branchName}:${branchName}`, "--set-upstream"]);
+}
+
+async function getGitHubRemoteInfo(
+  repositoryPath: string,
+  remoteName: string
+): Promise<{ owner: string; repo: string; repositoryFullName: string }> {
+  const remoteUrl = await execGit(repositoryPath, ["remote", "get-url", remoteName]);
+  const parsed = parseGitHubRemoteUrl(remoteUrl);
+
+  if (!parsed) {
+    throw new Error(`Remote "${remoteName}" is not a recognizable GitHub remote: ${remoteUrl}`);
+  }
+
+  return {
+    owner: parsed.owner,
+    repo: parsed.repo,
+    repositoryFullName: `${parsed.owner}/${parsed.repo}`
+  };
+}
+
+function parseGitHubRemoteUrl(remoteUrl: string): { owner: string; repo: string } | undefined {
+  const sshMatch = remoteUrl.match(/^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/);
+
+  if (sshMatch) {
+    return {
+      owner: sshMatch[1],
+      repo: sshMatch[2]
+    };
+  }
+
+  const httpsMatch = remoteUrl.match(/^https?:\/\/github\.com\/([^/]+)\/(.+?)(?:\.git)?$/);
+
+  if (httpsMatch) {
+    return {
+      owner: httpsMatch[1],
+      repo: httpsMatch[2]
+    };
+  }
+
+  return undefined;
+}
+
+async function execGit(cwd: string, args: string[]): Promise<string> {
+  const result = await execFileAsync("git", args, {
+    cwd,
+    encoding: "utf8"
+  });
+  return result.stdout.trim();
 }

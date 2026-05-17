@@ -485,6 +485,31 @@ nav a.active,
   color: #14536c;
 }
 
+.failure-callout {
+  background: rgba(170, 61, 40, 0.1);
+  border: 1px solid rgba(170, 61, 40, 0.24);
+  border-radius: var(--radius-lg);
+  display: grid;
+  gap: 0.45rem;
+  padding: 1rem 1.1rem;
+}
+
+.failure-callout-label {
+  color: #7f2715;
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.failure-callout-body {
+  color: #7f2715;
+  font-weight: 700;
+  line-height: 1.55;
+  margin: 0;
+}
+
 .detail-grid {
   display: grid;
   gap: 1rem;
@@ -501,6 +526,13 @@ nav a.active,
 
 .panel h2 {
   font-size: 1rem;
+}
+
+.panel-heading {
+  align-items: flex-start;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
 }
 
 .panel-wide {
@@ -536,6 +568,33 @@ nav a.active,
   font-weight: 800;
 }
 
+.status-pill {
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  font-weight: 800;
+  min-height: 2rem;
+  padding: 0 0.75rem;
+  white-space: nowrap;
+}
+
+.status-pill-good {
+  background: var(--good-soft);
+  color: var(--good);
+}
+
+.status-pill-warn {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.status-pill-neutral {
+  background: rgba(96, 112, 103, 0.14);
+  color: var(--muted);
+}
+
 .stack-list {
   display: grid;
   gap: 0.5rem;
@@ -547,6 +606,160 @@ nav a.active,
   color: var(--ink);
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+.stack-actions {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.stack-actions form {
+  margin: 0;
+}
+
+.stack-actions button {
+  width: 100%;
+}
+
+.review-guidance-title {
+  color: var(--accent-strong);
+  font-size: 1rem;
+  font-weight: 800;
+  margin: 0;
+}
+
+.review-summary,
+.review-section {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.review-summary {
+  background: rgba(249, 252, 246, 0.92);
+  border: 1px solid rgba(183, 197, 186, 0.55);
+  border-radius: var(--radius-md);
+  margin-bottom: 1rem;
+  padding: 0.9rem 1rem;
+}
+
+.review-summary strong,
+.review-section h3 {
+  color: var(--ink-strong);
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.review-summary p,
+.review-copy p {
+  color: var(--ink);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.review-grid {
+  display: grid;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.review-action-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.review-action-card,
+.prompt-history-card {
+  background: rgba(251, 252, 249, 0.92);
+  border: 1px solid rgba(183, 197, 186, 0.55);
+  border-radius: var(--radius-md);
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+}
+
+.review-action-card-static {
+  align-content: start;
+}
+
+.review-action-card h3,
+.prompt-history-card strong {
+  margin: 0;
+}
+
+.review-action-card textarea {
+  background: var(--panel-strong);
+  border: 1px solid rgba(183, 197, 186, 0.9);
+  border-radius: var(--radius-sm);
+  min-height: 6.5rem;
+  padding: 0.8rem 0.9rem;
+  resize: vertical;
+}
+
+.review-action-card textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(19, 111, 99, 0.12);
+  outline: none;
+}
+
+.prompt-diff {
+  background: #10221e;
+  border-radius: var(--radius-md);
+  color: #e6f4f1;
+  display: grid;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 0.88rem;
+  max-height: 28rem;
+  overflow: auto;
+  padding: 0.2rem 0;
+}
+
+.prompt-diff-line {
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: 1.4rem minmax(0, 1fr);
+  padding: 0.16rem 1rem;
+}
+
+.prompt-diff-line code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.prompt-diff-line-added {
+  background: rgba(29, 122, 70, 0.2);
+}
+
+.prompt-diff-line-removed {
+  background: rgba(182, 95, 25, 0.2);
+}
+
+.prompt-diff-marker {
+  color: rgba(230, 244, 241, 0.72);
+  display: inline-flex;
+  justify-content: center;
+}
+
+.prompt-history-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.prompt-history-comment {
+  color: var(--ink);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.review-section {
+  background: rgba(251, 252, 249, 0.92);
+  border: 1px solid rgba(183, 197, 186, 0.55);
+  border-radius: var(--radius-md);
+  padding: 0.9rem 1rem;
+}
+
+.review-copy {
+  display: grid;
+  gap: 0.6rem;
 }
 
 .button-stack form {
@@ -647,6 +860,11 @@ nav a.active,
   }
 
   .field-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .review-action-grid,
+  .prompt-history-grid {
     grid-template-columns: 1fr;
   }
 }

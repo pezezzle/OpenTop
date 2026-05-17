@@ -1,21 +1,30 @@
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
-import { env, platform } from "node:process";
+import { dirname, resolve } from "node:path";
+import { platform } from "node:process";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-if (platform !== "win32") {
-  throw new Error("unlink-local-cli.mjs currently supports Windows only.");
-}
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const cliDirectory = resolve(repoRoot, "apps", "cli");
 
-const roaming = env.APPDATA;
+await run("npm", ["unlink", "--global", "@opentop/cli"], cliDirectory);
+console.log(`Unlinked OpenTop CLI from ${cliDirectory}`);
 
-if (!roaming) {
-  throw new Error("APPDATA is not defined.");
-}
+function run(command, args, cwd) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(command, args, {
+      cwd,
+      stdio: "inherit",
+      shell: platform === "win32"
+    });
 
-const npmDirectory = join(roaming, "npm");
-const targets = [join(npmDirectory, "opentop.ps1"), join(npmDirectory, "opentop.cmd")];
+    child.on("error", rejectPromise);
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolvePromise();
+        return;
+      }
 
-for (const target of targets) {
-  await rm(target, { force: true });
-  console.log(`Removed ${target}`);
+      rejectPromise(new Error(`${command} ${args.join(" ")} exited with code ${code ?? 1}.`));
+    });
+  });
 }

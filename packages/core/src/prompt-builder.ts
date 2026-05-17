@@ -1,11 +1,28 @@
 import { createExecutionPlan } from "./execution.js";
-import type { BuiltPrompt, OpenTopProjectContext, PromptBuildInput } from "./types.js";
+import type {
+  BuiltPrompt,
+  LoadedContextProfile,
+  OpenTopProjectContext,
+  PlanArtifact,
+  PromptBuildInput,
+  PromptContextSummary
+} from "./types.js";
 
 export function buildAgentPrompt(input: PromptBuildInput): BuiltPrompt {
   const executionPlan = input.executionPlan ?? createExecutionPlan(input.ticket, input.config);
+  const executionPhase =
+    input.executionPhase ?? (executionPlan.profile.mode === "plan_only" ? "planning" : "implementation");
   const templateName = resolvePromptTemplateName(executionPlan.profile.id, executionPlan.profile.mode, input.projectContext);
   const template = input.projectContext.prompts[templateName];
-  const sections = buildRelevantSections(input.projectContext, template, input.ticket.title, input.ticket.description);
+  const sections = buildRelevantSections(
+    input.projectContext,
+    template,
+    input.ticket.title,
+    input.ticket.description,
+    executionPlan.classification,
+    input.approvedPlanArtifact,
+    executionPhase
+  );
   const sources = collectSources(templateName, sections, input.projectContext);
 
   const prompt = [
@@ -19,6 +36,7 @@ export function buildAgentPrompt(input: PromptBuildInput): BuiltPrompt {
     `Agent profile: ${executionPlan.profile.id}`,
     `Model: ${executionPlan.providerId}/${executionPlan.modelId}`,
     `Execution mode: ${executionPlan.profile.mode}`,
+    `Execution phase: ${executionPhase}`,
     `Approval required: ${executionPlan.classification.approvalRequired ? "yes" : "no"}`,
     "",
     "## Ticket",
@@ -27,11 +45,15 @@ export function buildAgentPrompt(input: PromptBuildInput): BuiltPrompt {
     `Labels: ${input.ticket.labels.length > 0 ? input.ticket.labels.join(", ") : "none"}`,
     "",
     "## Classification",
+    `Task type: ${executionPlan.classification.taskType}`,
     `Risk: ${executionPlan.classification.risk}`,
     `Complexity: ${executionPlan.classification.complexity}`,
     `Affected areas: ${executionPlan.classification.affectedAreas.join(", ")}`,
+    `Detected signals: ${executionPlan.classification.detectedSignals.join(", ") || "none"}`,
     `Suggested profile: ${executionPlan.classification.suggestedProfile}`,
+    `Suggested provider: ${executionPlan.classification.suggestedProviderId}`,
     `Suggested model tier: ${executionPlan.classification.suggestedModelTier}`,
+    `Suggested model: ${executionPlan.classification.suggestedModel}`,
     `Suggested mode: ${executionPlan.classification.suggestedMode}`,
     `Reason: ${executionPlan.classification.reason}`,
     "",
@@ -42,8 +64,21 @@ export function buildAgentPrompt(input: PromptBuildInput): BuiltPrompt {
     `Template: ${templateName}`,
     sections.templateObjective ?? "No explicit template objective found.",
     "",
+    ...formatPlanExecutionSection(executionPhase, input.approvedPlanArtifact),
+    "",
     "Rules:",
     formatList(sections.templateRules),
+    "",
+    "## Context Resolution",
+    `Profile mode: ${sections.contextSummary.profileMode}`,
+    `Active profiles: ${
+      sections.contextSummary.activeProfiles.length > 0
+        ? sections.contextSummary.activeProfiles.map((profile) => `${profile.type}:${profile.id}`).join(", ")
+        : "none"
+    }`,
+    `Profile budget: ${sections.contextSummary.budget.usedProfileSections}/${sections.contextSummary.budget.maxProfileSections} sections, ${sections.contextSummary.budget.usedProfileWords}/${sections.contextSummary.budget.maxPromptProfileWords} words`,
+    "Influences:",
+    formatList(sections.contextSummary.influences),
     "",
     "## Relevant Project Guidance",
     ...formatSection("Project Summary", sections.projectSummary),
@@ -54,14 +89,18 @@ export function buildAgentPrompt(input: PromptBuildInput): BuiltPrompt {
     "",
     ...formatMemorySection(sections.memory),
     "",
+    ...formatProfileSections(sections.profileSelections),
+    "",
     "## Important Documentation",
     formatList(sections.documentation),
     "",
     "## Required Response",
-    "Return a concise result using this structure:",
+    executionPhase === "planning"
+      ? "Return a reviewed implementation plan using this structure:"
+      : "Return a concise implementation result using this structure:",
     formatList(sections.outputSchema),
     "",
-    "Do not restate the whole project context. Focus on the ticket, the selected profile, the allowed commands, and the required response format."
+    "Project rules override profile preferences when they conflict. Do not restate the whole project context. Focus on the ticket, the selected profile, the allowed commands, and the required response format."
   ]
     .filter((line, index, array) => {
       if (line !== "") {
@@ -75,15 +114,12 @@ export function buildAgentPrompt(input: PromptBuildInput): BuiltPrompt {
   return {
     prompt,
     executionPlan,
-    sources
+    sources,
+    contextSummary: sections.contextSummary
   };
 }
 
-function resolvePromptTemplateName(
-  profileId: string,
-  mode: string,
-  projectContext: OpenTopProjectContext
-): string {
+function resolvePromptTemplateName(profileId: string, mode: string, projectContext: OpenTopProjectContext): string {
   if (mode === "review_only" && projectContext.prompts.reviewer) {
     return "reviewer";
   }
@@ -107,29 +143,63 @@ function buildRelevantSections(
   projectContext: OpenTopProjectContext,
   template: string | undefined,
   title: string,
-  description: string
+  description: string,
+  classification: PromptBuildInput["ticket"]["classification"] extends infer T ? Exclude<T, undefined> : never,
+  approvedPlanArtifact: PlanArtifact | undefined,
+  executionPhase: "planning" | "implementation"
 ) {
   const combinedText = `${title} ${description}`.toLowerCase();
   const glossaryMatches = selectRelevantEntries(projectContext.memory.glossary, combinedText, "## ");
   const knownIssueMatches = selectRelevantEntries(projectContext.memory["known-issues"], combinedText, "## ");
+  const profileSelections = selectProfileSections(projectContext.activeProfiles, classification, projectContext.settings);
+  const contextSummary: PromptContextSummary = {
+    profileMode: projectContext.settings.profileMode,
+    activeProfiles: projectContext.activeProfiles.map((profile) => ({
+      id: profile.id,
+      type: profile.type,
+      displayName: profile.displayName
+    })),
+    includedSections: profileSelections.flatMap((profile) =>
+      profile.sections.map((section) => `${profile.profile.displayName} -> ${section.label}`)
+    ),
+    skippedSections: profileSelections.flatMap((profile) => profile.skippedSections),
+    influences: buildContextInfluences(projectContext, profileSelections),
+    budget: {
+      maxPromptProfileWords: projectContext.settings.maxPromptProfileWords,
+      maxProfileSections: projectContext.settings.maxProfileSections,
+      usedProfileWords: profileSelections.reduce(
+        (total, profile) => total + profile.sections.reduce((sectionTotal, section) => sectionTotal + section.wordCount, 0),
+        0
+      ),
+      usedProfileSections: profileSelections.reduce((total, profile) => total + profile.sections.length, 0)
+    }
+  };
 
   return {
     projectSummary: extractParagraphs(extractSection(projectContext.projectContext, "## Project"), 2),
-    architectureRules: extractBulletList(extractSection(projectContext.projectContext, "## Architectural Rules")),
+    architectureRules: extractBulletList(extractSection(projectContext.projectContext, "## Architectural Rules")).slice(0, 8),
     agentInstructions: extractParagraphs(extractSection(projectContext.projectContext, "## Agent Instructions"), 2),
-    documentation: extractCodeReferences(extractSection(projectContext.projectContext, "## Important Documentation")),
-    engineeringRules: extractBulletList(extractSection(projectContext.rules, "## Engineering Rules")),
-    safetyRules: extractBulletList(extractSection(projectContext.rules, "## Safety Rules")),
+    documentation: extractCodeReferences(extractSection(projectContext.projectContext, "## Important Documentation")).slice(0, 10),
+    engineeringRules: extractBulletList(extractSection(projectContext.rules, "## Engineering Rules")).slice(0, 8),
+    safetyRules: extractBulletList(extractSection(projectContext.rules, "## Safety Rules")).slice(0, 8),
     templateObjective: extractParagraphs(extractSection(template, "## Objective"), 2),
-    templateRules: extractBulletList(extractSection(template, "## Rules")),
+    templateRules: extractBulletList(extractSection(template, "## Rules")).slice(0, 8),
     memory: {
       decisions: extractCompactDecisionSummary(projectContext.memory.decisions),
-      conventions: extractBulletList(projectContext.memory.conventions),
-      risks: extractBulletList(projectContext.memory.risks),
+      conventions: extractBulletList(projectContext.memory.conventions).slice(0, 6),
+      risks: extractBulletList(projectContext.memory.risks).slice(0, 6),
       glossary: glossaryMatches,
       knownIssues: knownIssueMatches
     },
-    outputSchema: extractHeadingList(projectContext.pullRequestTemplate)
+    profileSelections,
+    contextSummary,
+    outputSchema:
+      extractHeadingList(projectContext.pullRequestTemplate).concat(
+        executionPhase === "implementation"
+          ? []
+          : ["Assumptions", "Implementation steps", "Risks", "Open questions", "Work items"]
+      ),
+    approvedPlanArtifactSource: approvedPlanArtifact ? `plan artifact v${approvedPlanArtifact.version}` : undefined
   };
 }
 
@@ -172,11 +242,234 @@ function collectSources(
     sources.push(`.opentop/prompts/${templateName}.md`);
   }
 
+  if (sections.approvedPlanArtifactSource) {
+    sources.push(sections.approvedPlanArtifactSource);
+  }
+
   if (hasListContent(sections.outputSchema)) {
     sources.push(".opentop/templates/pull-request.md");
   }
 
-  return sources;
+  for (const profileSelection of sections.profileSelections) {
+    for (const section of profileSelection.sections) {
+      sources.push(section.source);
+    }
+  }
+
+  return [...new Set(sources)];
+}
+
+type SelectedProfileSection = {
+  key: string;
+  label: string;
+  content: string;
+  source: string;
+  wordCount: number;
+};
+
+type ProfileSelection = {
+  profile: LoadedContextProfile;
+  sections: SelectedProfileSection[];
+  skippedSections: string[];
+};
+
+function selectProfileSections(
+  profiles: LoadedContextProfile[],
+  classification: Exclude<PromptBuildInput["ticket"]["classification"], undefined>,
+  settings: OpenTopProjectContext["settings"]
+): ProfileSelection[] {
+  if (settings.profileMode === "project-only" || settings.profileMode === "manual") {
+    return profiles.map((profile) => ({
+      profile,
+      sections: [],
+      skippedSections: Object.keys(profile.sections).map((section) => `${profile.displayName} -> ${section} (profile mode)` )
+    }));
+  }
+
+  const priorities = buildProfileSectionPriorities(classification);
+  let remainingSections = settings.maxProfileSections;
+  let remainingWords = settings.maxPromptProfileWords;
+
+  return profiles.map((profile) => {
+    const maxSections = Math.min(profile.promptBudget.maxProfileSections ?? settings.maxProfileSections, remainingSections);
+    const maxWords = Math.min(profile.promptBudget.maxProfileWords ?? settings.maxPromptProfileWords, remainingWords);
+    const selected: SelectedProfileSection[] = [];
+    const skippedSections: string[] = [];
+    let profileWords = 0;
+
+    for (const key of priorities) {
+      const content = profile.sections[key];
+
+      if (!content) {
+        continue;
+      }
+
+      if (selected.length >= maxSections || remainingSections <= 0) {
+        skippedSections.push(`${profile.displayName} -> ${key} (section budget)`);
+        continue;
+      }
+
+      const compacted = compactMarkdown(content, 140);
+      const wordCount = countWords(compacted);
+
+      if (wordCount === 0) {
+        continue;
+      }
+
+      if (profileWords + wordCount > maxWords || remainingWords - wordCount < 0) {
+        skippedSections.push(`${profile.displayName} -> ${key} (word budget)`);
+        continue;
+      }
+
+      selected.push({
+        key,
+        label: formatProfileSectionLabel(key),
+        content: compacted,
+        source: `${profile.sourcePath}/${key}.md`,
+        wordCount
+      });
+      profileWords += wordCount;
+      remainingWords -= wordCount;
+      remainingSections -= 1;
+    }
+
+    for (const key of Object.keys(profile.sections)) {
+      if (!priorities.includes(key) && selected.every((section) => section.key !== key)) {
+        skippedSections.push(`${profile.displayName} -> ${key} (not relevant)`);
+      }
+    }
+
+    return {
+      profile,
+      sections: selected,
+      skippedSections
+    };
+  });
+}
+
+function buildProfileSectionPriorities(
+  classification: Exclude<PromptBuildInput["ticket"]["classification"], undefined>
+): string[] {
+  const priorities = ["summary", "prompt-preferences", "developer-style", "ticket-guidelines"];
+
+  if (
+    classification.affectedAreas.includes("backend") ||
+    classification.affectedAreas.includes("data") ||
+    classification.taskType === "architecture" ||
+    classification.taskType === "security" ||
+    classification.taskType === "migration" ||
+    classification.taskType === "integration"
+  ) {
+    priorities.push("architecture");
+  }
+
+  if (classification.affectedAreas.includes("frontend") || classification.taskType === "docs") {
+    priorities.push("ui-style", "styling");
+  }
+
+  if (classification.affectedAreas.includes("frontend") || classification.taskType === "feature") {
+    priorities.push("forms");
+  }
+
+  if (classification.affectedAreas.includes("tests") || classification.suggestedMode === "implement_and_test") {
+    priorities.push("testing-preferences");
+  }
+
+  return [...new Set(priorities)];
+}
+
+function buildContextInfluences(projectContext: OpenTopProjectContext, profileSelections: ProfileSelection[]): string[] {
+  const influences: string[] = [];
+
+  if (projectContext.projectContext) {
+    influences.push("project context summary");
+  }
+
+  if (projectContext.rules) {
+    influences.push("project engineering and safety rules");
+  }
+
+  if (Object.keys(projectContext.memory).length > 0) {
+    influences.push("project memory");
+  }
+
+  for (const profileSelection of profileSelections) {
+    if (profileSelection.sections.length > 0) {
+      influences.push(
+        `${profileSelection.profile.type} profile ${profileSelection.profile.displayName}: ${profileSelection.sections
+          .map((section) => section.label)
+          .join(", ")}`
+      );
+    }
+  }
+
+  return influences.length > 0 ? influences : ["OpenTop defaults only"];
+}
+
+function formatProfileSections(profileSelections: ProfileSelection[]): string[] {
+  const sections: string[] = [];
+
+  for (const profileSelection of profileSelections) {
+    if (profileSelection.sections.length === 0) {
+      continue;
+    }
+
+    sections.push("## Selected Context Profile Guidance", "");
+    sections.push(
+      `### ${profileSelection.profile.displayName} (${profileSelection.profile.type})`,
+      profileSelection.profile.description ?? "No profile description provided.",
+      ""
+    );
+
+    for (const section of profileSelection.sections) {
+      sections.push(`#### ${section.label}`, section.content, "");
+    }
+  }
+
+  return sections;
+}
+
+function formatPlanExecutionSection(
+  executionPhase: "planning" | "implementation",
+  approvedPlanArtifact: PlanArtifact | undefined
+): string[] {
+  if (executionPhase === "planning") {
+    return [
+      "## Planning Instructions",
+      "",
+      "This run is in planning mode.",
+      "Return a structured implementation plan before any code-changing execution starts.",
+      "Be explicit about assumptions, implementation steps, risks, open questions, and work items.",
+      ""
+    ];
+  }
+
+  if (!approvedPlanArtifact) {
+    return [];
+  }
+
+  return [
+    "## Approved Plan",
+    "",
+    `Use approved plan version v${approvedPlanArtifact.version} as the implementation contract for this run.`,
+    ...(approvedPlanArtifact.structuredPlan.summary
+      ? ["### Plan Summary", approvedPlanArtifact.structuredPlan.summary, ""]
+      : []),
+    ...formatSection(
+      "Implementation Steps",
+      approvedPlanArtifact.structuredPlan.implementationSteps.map((step) =>
+        step.summary ? `${step.title}: ${step.summary}` : step.title
+      )
+    ),
+    ...formatSection(
+      "Work Items",
+      approvedPlanArtifact.structuredPlan.workItems.map((workItem) =>
+        `${workItem.title}: ${workItem.summary} (${workItem.affectedAreas.join(", ")})`
+      )
+    ),
+    ...formatSection("Plan Risks", approvedPlanArtifact.structuredPlan.risks),
+    ...formatSection("Open Questions", approvedPlanArtifact.structuredPlan.openQuestions)
+  ];
 }
 
 function formatSection(title: string, content: string | string[]): string[] {
@@ -351,6 +644,31 @@ function buildKeywordSet(text: string): string[] {
     .filter((token) => token.length >= 4);
 
   return [...new Set(tokens)];
+}
+
+function compactMarkdown(markdown: string, maxWords: number): string {
+  const normalized = markdown
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter((line, index, lines) => !(line === "" && lines[index - 1] === ""))
+    .join("\n")
+    .trim();
+
+  const words = normalized.split(/\s+/).filter(Boolean);
+
+  if (words.length <= maxWords) {
+    return normalized;
+  }
+
+  return `${words.slice(0, maxWords).join(" ")} ...`;
+}
+
+function countWords(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+function formatProfileSectionLabel(key: string): string {
+  return key.replace(/-/g, " ");
 }
 
 function hasContent(value: string): boolean {

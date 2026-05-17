@@ -16,4 +16,11 @@ export type ExecutionMode =
   | "draft_pr";
 
 export type ExecutionBranchPolicy = "new" | "reuse-current" | "manual" | "none";
-export type ExecutionStatus = "planned" | "queued" | "running" | "succeeded" | "failed" | "cancelled";
+export type ExecutionStatus =
+  | "planned"
+  | "queued"
+  | "running"
+  | "succeeded"
+  | "output_ready"
+  | "failed"
+  | "cancelled";
