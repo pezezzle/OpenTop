@@ -206,9 +206,31 @@ Returns a ticket detail payload:
 - work items for the latest ticket decomposition
 - executions for the ticket
 
+The enriched ticket now also includes:
+
+- `status`
+- `resolutionType`
+- `resolutionNote`
+- `resolvedAt`
+
 ### `POST /tickets/:ticketId/classify`
 
 Classifies a stored ticket and returns classification plus execution plan.
+
+### `POST /tickets/:ticketId/resolve`
+
+Explicitly closes a ticket after review, even when the PR step is handled outside OpenTop.
+
+Request fields:
+
+- `resolutionType` (`done`, `manual_pr`, or `no_pr`)
+- `resolutionNote` (optional)
+
+This route rejects the request when the latest execution is still running or when a successful code-changing execution still has a pending review decision.
+
+### `POST /tickets/:ticketId/reopen`
+
+Reopens a resolved ticket, clears the stored resolution metadata, and restores it to an actionable workflow state.
 
 ### `GET /tickets/:ticketId/prompt`
 
@@ -425,6 +447,8 @@ This route:
 - creates a GitHub draft PR using `GITHUB_TOKEN` or `GH_TOKEN`
 - stores the resulting PR metadata back on the execution
 
+Draft PR creation is optional. A human can instead resolve the ticket manually through `/tickets/:ticketId/resolve`.
+
 ### `POST /classify`
 
 Compatibility endpoint for classifying manual request input without storing a ticket.
@@ -435,6 +459,5 @@ The API does not yet:
 
 - stream logs
 - run checks
-- create draft PRs
 - import external tickets
 - execute work items in parallel

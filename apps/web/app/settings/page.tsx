@@ -39,6 +39,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
     getStatus(),
     getProviders()
   ]);
+  const readyProviders = providerResponse.providers.filter((provider) => provider.status === "ready").length;
+  const providerAttentionCount = providerResponse.providers.length - readyProviders;
   const oauthNotice =
     params.oauth === "connected"
       ? { tone: "success", text: `Provider "${params.provider ?? ""}" connected successfully.` }
@@ -53,19 +55,45 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
       <header className="detail-header">
         <div>
           <p className="eyebrow">Settings</p>
-          <h1>Execution Policy</h1>
+          <h1>Workspace Settings</h1>
           <p className="subline">
-            Repository {status.project} · current branch {status.currentBranch} · effective policy{" "}
-            {config.execution.defaultBranchPolicy.effective ?? "unknown"}
+            Configure branch behavior, prompt context, and provider routing for {status.project}.
           </p>
         </div>
       </header>
 
       {oauthNotice ? <p className={`notice notice-${oauthNotice.tone}`}>{oauthNotice.text}</p> : null}
 
+      <section className="summary-strip" aria-label="Settings summary">
+        <article className="summary-card">
+          <span className="summary-label">Effective Branch Policy</span>
+          <strong className="summary-value">{config.execution.defaultBranchPolicy.effective ?? "(not set)"}</strong>
+          <p className="summary-copy">How OpenTop chooses or reuses a branch when a new execution starts.</p>
+        </article>
+        <article className="summary-card">
+          <span className="summary-label">Context Mode</span>
+          <strong className="summary-value">{context.context.effective.profileMode}</strong>
+          <p className="summary-copy">
+            {context.context.activeProfiles.length} active profile{context.context.activeProfiles.length === 1 ? "" : "s"} layered into prompts.
+          </p>
+        </article>
+        <article className="summary-card">
+          <span className="summary-label">Provider Health</span>
+          <strong className="summary-value">
+            {readyProviders}/{providerResponse.providers.length}
+          </strong>
+          <p className="summary-copy">
+            {providerAttentionCount > 0
+              ? `${providerAttentionCount} provider${providerAttentionCount === 1 ? "" : "s"} still need attention.`
+              : "All configured providers are ready to use."}
+          </p>
+        </article>
+      </section>
+
       <section className="detail-grid">
         <article className="panel">
-          <h2>Current Values</h2>
+          <h2>Branch Defaults</h2>
+          <p className="subline">These values decide whether executions create a branch, reuse the current one, or wait for a manual choice.</p>
           <dl className="stacked-meta">
             <div>
               <dt>Effective</dt>
@@ -84,6 +112,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
         <article className="panel">
           <h2>Set Project Policy</h2>
+          <p className="subline">Project policy lives with the repository and is usually the best place to define the team default.</p>
           <div className="button-stack">
             {policies.map((policy) => (
               <form action={updateBranchPolicyAction} key={`project-${policy}`}>
@@ -97,6 +126,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
         <article className="panel">
           <h2>Set User Policy</h2>
+          <p className="subline">User policy is your personal fallback when the project does not define one.</p>
           <div className="button-stack">
             {policies.map((policy) => (
               <form action={updateBranchPolicyAction} key={`user-${policy}`}>
@@ -104,6 +134,204 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                 <input name="value" type="hidden" value={policy} />
                 <button type="submit">{policy}</button>
               </form>
+            ))}
+          </div>
+        </article>
+
+        <article className="panel panel-span-2">
+          <h2>Provider Setup</h2>
+          <p className="subline">
+            Configure provider type, connection method, and default model tiers without editing YAML by hand.
+          </p>
+          <p className="subline">
+            `codex-cli` currently uses `local_cli`. OpenRouter OAuth is implemented for hosted API access. `openai-codex`
+            can connect a ChatGPT/Codex account for inspection and future native integration, but OpenTop does not currently
+            support it as an execution runtime; use `codex-cli` for subscription access or `openai-api` with an API key.
+            Local patch application is still a later step.
+          </p>
+
+          <form action={updateProviderAction} className="stack-form provider-form">
+            <div className="field-grid">
+              <label className="field">
+                <span>Provider ID</span>
+                <input defaultValue="codex" name="providerId" required type="text" />
+              </label>
+
+              <label className="field">
+                <span>Provider type</span>
+                <select defaultValue="codex-cli" name="type">
+                  {providerTypes.map((providerType) => (
+                    <option key={providerType} value={providerType}>
+                      {providerType}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Connection method</span>
+                <select defaultValue="local_cli" name="connectionMethod">
+                  {connectionMethods.map((method) => (
+                    <option key={method} value={method}>
+                      {method}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Command</span>
+                <input defaultValue="codex" name="command" placeholder="codex" type="text" />
+              </label>
+
+              <label className="field">
+                <span>API key env</span>
+                <input name="apiKeyEnv" placeholder="OPENAI_API_KEY" type="text" />
+              </label>
+
+              <label className="field">
+                <span>OAuth provider</span>
+                <input name="oauthProvider" placeholder="openrouter or openai-codex" type="text" />
+              </label>
+
+              <label className="field">
+                <span>Base URL</span>
+                <input name="baseUrl" placeholder="http://127.0.0.1:11434" type="text" />
+              </label>
+
+              <label className="field">
+                <span>Cheap model</span>
+                <input defaultValue="gpt-5.4-mini" name="cheapModel" placeholder="gpt-5.4-mini" type="text" />
+              </label>
+
+              <label className="field">
+                <span>Strong model</span>
+                <input defaultValue="gpt-5.5" name="strongModel" placeholder="gpt-5.5" type="text" />
+              </label>
+
+              <label className="field">
+                <span>Local model</span>
+                <input name="localModel" placeholder="llama3.1:latest" type="text" />
+              </label>
+            </div>
+
+            <button type="submit">Save provider setup</button>
+          </form>
+        </article>
+
+        <article className="panel panel-span-2">
+          <h2>Runtime Health</h2>
+          <p className="subline">
+            Check provider commands, routed model tiers, connection state, and common compatibility risks before you start work.
+          </p>
+
+          <div className="provider-grid">
+            {providerResponse.providers.map((provider) => (
+              <section className="provider-card" key={provider.providerId}>
+                <div className="provider-card-header">
+                  <div>
+                    <strong>{provider.providerId}</strong>
+                    <p className="provider-type">
+                      {provider.type}
+                      {provider.version ? ` · ${provider.version}` : ""}
+                    </p>
+                  </div>
+                  <span className={`provider-badge provider-${provider.status}`}>{provider.status}</span>
+                </div>
+
+                <dl className="stacked-meta">
+                  <div>
+                    <dt>Connection</dt>
+                    <dd>{provider.connectionMethod}</dd>
+                  </div>
+                  <div>
+                    <dt>Command</dt>
+                    <dd>{provider.command ?? "(none)"}</dd>
+                  </div>
+                  <div>
+                    <dt>API key env</dt>
+                    <dd>{provider.apiKeyEnv ?? "(none)"}</dd>
+                  </div>
+                  <div>
+                    <dt>OAuth provider</dt>
+                    <dd>{provider.oauthProvider ?? "(none)"}</dd>
+                  </div>
+                  <div>
+                    <dt>Base URL</dt>
+                    <dd>{provider.baseUrl ?? "(none)"}</dd>
+                  </div>
+                  <div>
+                    <dt>Available</dt>
+                    <dd className={provider.available ? "tone-good" : "tone-danger"}>
+                      {provider.available ? "yes" : "no"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Connection state</dt>
+                    <dd>{provider.connectionState.label}</dd>
+                  </div>
+                  <div>
+                    <dt>Model tiers</dt>
+                    <dd>
+                      {provider.modelTiers.length === 0
+                        ? "(none)"
+                        : provider.modelTiers.map((modelTier) => `${modelTier.tier} -> ${modelTier.model}`).join(", ")}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Capabilities</dt>
+                    <dd>
+                      {[
+                        ...provider.capabilities.authMethods,
+                        provider.capabilities.supportsStructuredOutput ? "structured" : "",
+                        provider.capabilities.supportsLocalWorkspace ? "workspace" : "",
+                        provider.capabilities.supportsMultiRunOrchestration ? "multi-run" : ""
+                      ]
+                        .filter(Boolean)
+                        .join(", ") || "(none)"}
+                    </dd>
+                  </div>
+                </dl>
+
+                <div className="provider-issues">
+                  {provider.issues.length === 0 ? (
+                    <p className="notice notice-success">No provider issues detected.</p>
+                  ) : (
+                    provider.issues.map((issue, issueIndex) => (
+                      <p
+                        className={`notice notice-${issue.severity}`}
+                        key={`${provider.providerId}-${issue.code}-${issueIndex}`}
+                      >
+                        <strong>{issue.severity}</strong> · {issue.message}
+                      </p>
+                    ))
+                  )}
+                </div>
+
+                {provider.connectionMethod === "oauth" ? (
+                  <div className="button-stack">
+                    <p className="subline">
+                      {provider.connectionState.connectedAt
+                        ? `Connected at ${provider.connectionState.connectedAt}`
+                        : provider.connectionState.lastError ?? "Connect this provider from OpenTop without writing secrets into project config."}
+                    </p>
+                    {provider.connectionState.status !== "connected" ? (
+                      <form action={startProviderOauthAction}>
+                        <input name="providerId" type="hidden" value={provider.providerId} />
+                        <button disabled={!provider.connectionState.supported} type="submit">
+                          Connect provider
+                        </button>
+                      </form>
+                    ) : null}
+                    {provider.connectionState.status === "connected" ? (
+                      <form action={disconnectProviderOauthAction}>
+                        <input name="providerId" type="hidden" value={provider.providerId} />
+                        <button type="submit">Disconnect provider</button>
+                      </form>
+                    ) : null}
+                  </div>
+                ) : null}
+              </section>
             ))}
           </div>
         </article>
@@ -221,204 +449,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </div>
 
             <button type="submit">Save context settings</button>
-          </form>
-        </article>
-
-        <article className="panel panel-span-2">
-          <h2>Providers</h2>
-          <p className="subline">
-            Runtime checks for configured provider commands, routed model tiers, and common compatibility risks.
-          </p>
-
-          <div className="provider-grid">
-            {providerResponse.providers.map((provider) => (
-              <section className="provider-card" key={provider.providerId}>
-                <div className="provider-card-header">
-                  <div>
-                    <strong>{provider.providerId}</strong>
-                    <p className="provider-type">
-                      {provider.type}
-                      {provider.version ? ` · ${provider.version}` : ""}
-                    </p>
-                  </div>
-                  <span className={`provider-badge provider-${provider.status}`}>{provider.status}</span>
-                </div>
-
-                <dl className="stacked-meta">
-                  <div>
-                    <dt>Connection</dt>
-                    <dd>{provider.connectionMethod}</dd>
-                  </div>
-                  <div>
-                    <dt>Command</dt>
-                    <dd>{provider.command ?? "(none)"}</dd>
-                  </div>
-                  <div>
-                    <dt>API key env</dt>
-                    <dd>{provider.apiKeyEnv ?? "(none)"}</dd>
-                  </div>
-                  <div>
-                    <dt>OAuth provider</dt>
-                    <dd>{provider.oauthProvider ?? "(none)"}</dd>
-                  </div>
-                  <div>
-                    <dt>Base URL</dt>
-                    <dd>{provider.baseUrl ?? "(none)"}</dd>
-                  </div>
-                  <div>
-                    <dt>Available</dt>
-                    <dd className={provider.available ? "tone-good" : "tone-danger"}>
-                      {provider.available ? "yes" : "no"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Connection state</dt>
-                    <dd>{provider.connectionState.label}</dd>
-                  </div>
-                  <div>
-                    <dt>Model tiers</dt>
-                    <dd>
-                      {provider.modelTiers.length === 0
-                        ? "(none)"
-                        : provider.modelTiers.map((modelTier) => `${modelTier.tier} -> ${modelTier.model}`).join(", ")}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Capabilities</dt>
-                    <dd>
-                      {[
-                        ...provider.capabilities.authMethods,
-                        provider.capabilities.supportsStructuredOutput ? "structured" : "",
-                        provider.capabilities.supportsLocalWorkspace ? "workspace" : "",
-                        provider.capabilities.supportsMultiRunOrchestration ? "multi-run" : ""
-                      ]
-                        .filter(Boolean)
-                        .join(", ") || "(none)"}
-                    </dd>
-                  </div>
-                </dl>
-
-                <div className="provider-issues">
-                  {provider.issues.length === 0 ? (
-                    <p className="notice notice-success">No provider issues detected.</p>
-                  ) : (
-                    provider.issues.map((issue, issueIndex) => (
-                      <p
-                        className={`notice notice-${issue.severity}`}
-                        key={`${provider.providerId}-${issue.code}-${issueIndex}`}
-                      >
-                        <strong>{issue.severity}</strong> · {issue.message}
-                      </p>
-                    ))
-                  )}
-                </div>
-
-                {provider.connectionMethod === "oauth" ? (
-                  <div className="button-stack">
-                    <p className="subline">
-                      {provider.connectionState.connectedAt
-                        ? `Connected at ${provider.connectionState.connectedAt}`
-                        : provider.connectionState.lastError ?? "Connect this provider from OpenTop without writing secrets into project config."}
-                    </p>
-                    {provider.connectionState.status !== "connected" ? (
-                      <form action={startProviderOauthAction}>
-                        <input name="providerId" type="hidden" value={provider.providerId} />
-                        <button disabled={!provider.connectionState.supported} type="submit">
-                          Connect provider
-                        </button>
-                      </form>
-                    ) : null}
-                    {provider.connectionState.status === "connected" ? (
-                      <form action={disconnectProviderOauthAction}>
-                        <input name="providerId" type="hidden" value={provider.providerId} />
-                        <button type="submit">Disconnect provider</button>
-                      </form>
-                    ) : null}
-                  </div>
-                ) : null}
-              </section>
-            ))}
-          </div>
-        </article>
-
-        <article className="panel panel-span-2">
-          <h2>Provider Setup</h2>
-          <p className="subline">
-            Configure provider type, connection method, and default model tiers without editing YAML by hand.
-          </p>
-          <p className="subline">
-            `codex-cli` currently uses `local_cli`. OpenRouter OAuth is implemented for hosted API access. `openai-codex`
-            can connect a ChatGPT/Codex account for inspection and future native integration, but OpenTop does not currently
-            support it as an execution runtime; use `codex-cli` for subscription access or `openai-api` with an API key.
-            Local patch application is still a later step.
-          </p>
-
-          <form action={updateProviderAction} className="stack-form provider-form">
-            <div className="field-grid">
-              <label className="field">
-                <span>Provider ID</span>
-                <input defaultValue="codex" name="providerId" required type="text" />
-              </label>
-
-              <label className="field">
-                <span>Provider type</span>
-                <select defaultValue="codex-cli" name="type">
-                  {providerTypes.map((providerType) => (
-                    <option key={providerType} value={providerType}>
-                      {providerType}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="field">
-                <span>Connection method</span>
-                <select defaultValue="local_cli" name="connectionMethod">
-                  {connectionMethods.map((method) => (
-                    <option key={method} value={method}>
-                      {method}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="field">
-                <span>Command</span>
-                <input defaultValue="codex" name="command" placeholder="codex" type="text" />
-              </label>
-
-              <label className="field">
-                <span>API key env</span>
-                <input name="apiKeyEnv" placeholder="OPENAI_API_KEY" type="text" />
-              </label>
-
-              <label className="field">
-                <span>OAuth provider</span>
-                <input name="oauthProvider" placeholder="openrouter or openai-codex" type="text" />
-              </label>
-
-              <label className="field">
-                <span>Base URL</span>
-                <input name="baseUrl" placeholder="http://127.0.0.1:11434" type="text" />
-              </label>
-
-              <label className="field">
-                <span>Cheap model</span>
-                <input defaultValue="gpt-5-codex" name="cheapModel" placeholder="gpt-5-codex" type="text" />
-              </label>
-
-              <label className="field">
-                <span>Strong model</span>
-                <input defaultValue="gpt-5-codex" name="strongModel" placeholder="gpt-5-codex" type="text" />
-              </label>
-
-              <label className="field">
-                <span>Local model</span>
-                <input name="localModel" placeholder="llama3.1:latest" type="text" />
-              </label>
-            </div>
-
-            <button type="submit">Save provider setup</button>
           </form>
         </article>
       </section>

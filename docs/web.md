@@ -44,9 +44,11 @@ Shows:
 - effective branch policy
 - working tree status
 - provider readiness summary
+- top-level workflow summary for ready work, review work, and review-output runs
 - ticket lanes
 - ticket cards
-- latest workflow stage
+- recent executions
+- create-ticket form
 
 Board lanes:
 
@@ -65,10 +67,12 @@ Path:
 Shows:
 
 - ticket title and description
-- labels
-- workflow stage
-- suggested branch name
-- classification
+- current workflow focus and next recommended action
+- workflow progress strip from prompt through PR
+- summary cards for task type, routing, and latest run
+- labels, workflow stage, and suggested branch name
+- explicit ticket-resolution status, note, and timestamp when work is manually closed
+- classification and routing rationale
 - prompt preview
 - prompt review status and approval requirement
 - approve, reject, and regenerate prompt actions
@@ -85,8 +89,16 @@ Shows:
 - per-work-item run action and latest linked execution
 - prompt context summary, influences, included sections, and sources
 - execution history
-- `Start execution` action
+- `Start execution` action plus quick link to the latest execution
 - latest execution review status when code changes are waiting for approval
+- `Mark ticket done`, `Done, PR handled manually`, `Done without PR`, and `Reopen ticket` actions so PR creation stays optional
+
+The Web UI intentionally exposes only two explicit close modes in the ticket workflow:
+
+- `Done, PR handled manually`
+- `Done without PR`
+
+The older generic `done` resolution value is still tolerated internally for compatibility, but it is no longer presented as a primary user choice.
 
 ### Execution Detail
 
@@ -103,16 +115,22 @@ Shows:
 - branch name
 - agent profile
 - provider and model
+- current workflow focus and next recommended action
+- execution snapshot for status, review, and PR stage
+- summary cards for changed files, checks, and risk level
 - classification snapshot
-- prompt snapshot
 - review guidance and structured review output when a run produced a plan, patch proposal, or review note
 - execution review status and approval/rejection actions for successful workspace-changing runs
 - stored build/test checks with captured command output
-- execution logs
 - changed files
 - diff review with per-file patch previews
 - risk summary and suggested reviewer actions
+- prompt snapshot
+- execution logs
 - draft pull-request creation and stored draft PR output for approved executions
+- non-crashing blocked PR notice when GitHub credentials are missing
+
+Approved executions can now be treated as ready for downstream work without forcing PR creation inside OpenTop. The ticket itself is only considered `Done` after an explicit resolution action on the ticket page.
 
 ### Settings
 
@@ -124,17 +142,18 @@ Path:
 
 Shows and updates:
 
+- summary cards for branch policy, context mode, and provider health
 - effective branch policy
 - project branch policy
 - user branch policy
-- effective context profiles, loaded profile IDs, and prompt budget
-- configured providers
+- provider setup form for command, API-key env, base URL, OAuth metadata, and model tiers
+- configured providers and runtime health
 - connection method per provider
 - routed model tiers
 - runtime availability warnings
 - common model/provider compatibility warnings
 - OAuth connection state, connect, and disconnect actions for hosted providers
-- provider setup form for command, API-key env, base URL, OAuth metadata, and model tiers
+- effective context profiles, loaded profile IDs, and prompt budget
 - context settings form for learned profile IDs, user profile IDs, profile mode, scope, and prompt budget
 
 The Settings surface now supports a full local OAuth callback round-trip for supported providers. Today:

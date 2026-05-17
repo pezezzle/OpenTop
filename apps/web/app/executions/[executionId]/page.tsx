@@ -228,12 +228,67 @@ function extractFailureReason(execution: Awaited<ReturnType<typeof getExecution>
   return undefined;
 }
 
+function getExecutionActionCenter(input: {
+  execution: Awaited<ReturnType<typeof getExecution>>["execution"];
+  checkRuns: Awaited<ReturnType<typeof getExecution>>["checkRuns"];
+}): { tone: "info" | "warning" | "success"; title: string; body: string } {
+  const { execution, checkRuns } = input;
+
+  if (execution.pullRequest) {
+    return {
+      tone: "success",
+      title: "Draft pull request is ready",
+      body: "This execution has already moved into the pull-request stage. Use the GitHub draft as the handoff point for downstream review."
+    };
+  }
+
+  if (execution.status === "failed") {
+    return {
+      tone: "warning",
+      title: "Resolve the execution failure",
+      body: "Read the failure message and logs first. Retry only after you know whether the problem is provider access, repository state, or ticket intent."
+    };
+  }
+
+  if (execution.artifactKind === "review_output") {
+    return {
+      tone: "info",
+      title: "Review the output before continuing",
+      body: "This run produced text for human review instead of local file changes. Validate it, then decide whether to start a follow-up execution."
+    };
+  }
+
+  if (execution.reviewStatus === "pending") {
+    return {
+      tone: "warning",
+      title: "Review the workspace change set",
+      body: "Inspect changed files, checks, and risk summary before approving or rejecting this execution."
+    };
+  }
+
+  if (execution.reviewStatus === "approved" && !execution.pullRequest) {
+    return {
+      tone: "success",
+      title: "Ready to open a draft PR",
+      body: checkRuns.some((checkRun) => checkRun.status === "failed")
+        ? "The execution has been approved, but some recorded checks failed. Override carefully if you still want to create a draft PR."
+        : "The execution has been approved and is ready for the draft PR step."
+    };
+  }
+
+  return {
+    tone: "info",
+    title: "Execution details available",
+    body: "Use this page to understand what happened, what changed, and what the next safe action should be."
+  };
+}
+
 export default async function ExecutionDetailPage({
   params,
   searchParams
 }: {
   params: Promise<{ executionId: string }>;
-  searchParams: Promise<{ run?: string; review?: string; pullRequest?: string }>;
+  searchParams: Promise<{ run?: string; review?: string; pullRequest?: string; reason?: string }>;
 }) {
   const { executionId } = await params;
   const query = await searchParams;
@@ -248,6 +303,10 @@ export default async function ExecutionDetailPage({
     const reviewFiles = execution.outputText ? extractReferencedFiles(execution.outputText) : [];
     const nextActions = buildNextActions(execution.outputKind);
     const failureReason = execution.status === "failed" ? extractFailureReason(execution) : undefined;
+    const actionCenter = getExecutionActionCenter({ execution, checkRuns });
+    const missingCheckDetails =
+      checkRuns.length === 0 &&
+      execution.riskSummary?.reasons.some((reason) => reason.toLowerCase().includes("checks failed"));
 
     return (
       <main className="detail-shell">
@@ -317,6 +376,62 @@ export default async function ExecutionDetailPage({
           </section>
         ) : null}
 
+        {query.pullRequest === "blocked" ? (
+          <section className="notice notice-warning">
+            {query.reason?.includes("GITHUB_TOKEN") || query.reason?.includes("GH_TOKEN")
+              ? "Draft PR creation is blocked until GITHUB_TOKEN or GH_TOKEN is available to the API process."
+              : query.reason ?? "Draft PR creation is currently blocked."}
+          </section>
+        ) : null}
+
+        <section className="workflow-summary">
+          <article className={`action-banner action-banner-${actionCenter.tone}`}>
+            <p className="action-banner-label">Current Focus</p>
+            <h2>{actionCenter.title}</h2>
+            <p>{actionCenter.body}</p>
+          </article>
+
+          <article className="flow-card">
+            <h2>Execution Snapshot</h2>
+            <div className="flow-steps">
+              <div className="flow-step flow-step-done">
+                <span>Status</span>
+                <strong>{formatExecutionStatus(execution.status)}</strong>
+              </div>
+              <div className={`flow-step flow-step-${execution.reviewStatus === "approved" ? "done" : execution.reviewStatus === "pending" ? "current" : "upcoming"}`}>
+                <span>Review</span>
+                <strong>{formatReviewStatus(execution.reviewStatus)}</strong>
+              </div>
+              <div className={`flow-step flow-step-${execution.pullRequest ? "done" : execution.reviewStatus === "approved" ? "current" : "upcoming"}`}>
+                <span>PR</span>
+                <strong>{execution.pullRequest ? "Created" : "Pending"}</strong>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section className="summary-strip" aria-label="Execution summary">
+          <article className="summary-card">
+            <span className="summary-label">Changed Files</span>
+            <strong className="summary-value">{execution.changedFiles.length}</strong>
+            <p className="summary-copy">
+              {execution.artifactKind === "review_output" ? "Review-only output" : execution.branchName}
+            </p>
+          </article>
+          <article className="summary-card">
+            <span className="summary-label">Checks</span>
+            <strong className="summary-value">{checkRuns.length}</strong>
+            <p className="summary-copy">
+              {checkRuns.length === 0 ? "No stored check runs" : `${checkRuns.filter((checkRun) => checkRun.status === "failed").length} failing`}
+            </p>
+          </article>
+          <article className="summary-card">
+            <span className="summary-label">Risk Level</span>
+            <strong className="summary-value">{execution.riskSummary?.level ?? "none"}</strong>
+            <p className="summary-copy">{execution.providerId}/{execution.modelId}</p>
+          </article>
+        </section>
+
         <section className="detail-grid">
           <article className="panel">
             <h2>Execution</h2>
@@ -379,43 +494,36 @@ export default async function ExecutionDetailPage({
           </article>
 
           <article className="panel">
-            <h2>Classification Snapshot</h2>
+            <h2>Routing Snapshot</h2>
+            <p className="subline">
+              OpenTop routed this execution as <strong>{execution.classificationSnapshot.taskType}</strong> work with{" "}
+              <strong>{execution.classificationSnapshot.risk}</strong> risk and{" "}
+              <strong>{execution.classificationSnapshot.complexity}</strong> expected size.
+            </p>
             <dl className="stacked-meta">
               <div>
-                <dt>Task Type</dt>
-                <dd>{execution.classificationSnapshot.taskType}</dd>
-              </div>
-              <div>
-                <dt>Risk</dt>
-                <dd>{execution.classificationSnapshot.risk}</dd>
-              </div>
-              <div>
-                <dt>Complexity</dt>
-                <dd>{execution.classificationSnapshot.complexity}</dd>
-              </div>
-              <div>
-                <dt>Suggested Profile</dt>
+                <dt>Profile</dt>
                 <dd>{execution.classificationSnapshot.suggestedProfile}</dd>
               </div>
               <div>
-                <dt>Suggested Provider</dt>
+                <dt>Provider</dt>
                 <dd>{execution.classificationSnapshot.suggestedProviderId}</dd>
               </div>
               <div>
-                <dt>Suggested Model</dt>
+                <dt>Model</dt>
                 <dd>{execution.classificationSnapshot.suggestedModel}</dd>
               </div>
               <div>
                 <dt>Signals</dt>
-                <dd>{execution.classificationSnapshot.detectedSignals.join(", ") || "none"}</dd>
+                <dd>{execution.classificationSnapshot.detectedSignals.length}</dd>
               </div>
             </dl>
-          </article>
-
-          <article className="panel">
-            <h2>Review Guidance</h2>
-            <p className="review-guidance-title">{reviewGuidance.title}</p>
-            <p className="subline">{reviewGuidance.body}</p>
+            <details className="disclosure">
+              <summary>Show technical routing signals</summary>
+              <div className="disclosure-body">
+                <p className="subline">{execution.classificationSnapshot.detectedSignals.join(", ") || "none"}</p>
+              </div>
+            </details>
           </article>
 
           <article className="panel">
@@ -425,6 +533,12 @@ export default async function ExecutionDetailPage({
                 <li key={action}>{action}</li>
               ))}
             </ul>
+          </article>
+
+          <article className="panel">
+            <h2>Review Guidance</h2>
+            <p className="review-guidance-title">{reviewGuidance.title}</p>
+            <p className="subline">{reviewGuidance.body}</p>
           </article>
 
           <article className="panel">
@@ -501,8 +615,98 @@ export default async function ExecutionDetailPage({
           </article>
 
           <article className="panel panel-wide">
-            <h2>Prompt Snapshot</h2>
-            <pre className="prompt-preview">{execution.promptSnapshot}</pre>
+            <h2>Checks</h2>
+            {checkRuns.length === 0 ? (
+              <>
+                <p className="empty-state">No post-run checks were recorded for this execution.</p>
+                {missingCheckDetails ? (
+                  <p className="notice notice-warning">
+                    This execution still carries a stored risk note about failing checks, but the detailed check records are no longer available.
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <div className="review-grid">
+                {checkRuns.map((checkRun) => (
+                  <section className="review-section" key={checkRun.id}>
+                    <h3>
+                      {checkRun.name} · {formatCheckStatus(checkRun.status)}
+                    </h3>
+                    <p className="subline">
+                      {checkRun.command ?? "No command configured"}
+                      {typeof checkRun.exitCode === "number" ? ` · exit ${checkRun.exitCode}` : ""}
+                    </p>
+                    <pre className="prompt-preview">{checkRun.output || "No command output was captured."}</pre>
+                  </section>
+                ))}
+              </div>
+            )}
+          </article>
+
+          <article className="panel">
+            <h2>Risk Summary</h2>
+            {execution.riskSummary ? (
+              <>
+                <p className="subline">Level {execution.riskSummary.level}</p>
+                <ul className="stack-list">
+                  {execution.riskSummary.reasons.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+                <h3>Suggested Actions</h3>
+                <ul className="stack-list">
+                  {execution.riskSummary.suggestedActions.map((action) => (
+                    <li key={action}>{action}</li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p className="empty-state">No additional risk summary was stored for this execution.</p>
+            )}
+          </article>
+
+          <article className="panel">
+            <h2>Changed Files</h2>
+            {execution.changedFiles.length === 0 ? (
+              <p className="empty-state">
+                {execution.artifactKind === "review_output"
+                  ? "No local changed files were detected. This run produced review output only."
+                  : "No changed files have been detected yet."}
+              </p>
+            ) : (
+              <ul className="stack-list">
+                {execution.changedFiles.map((file) => (
+                  <li key={file}>{file}</li>
+                ))}
+              </ul>
+            )}
+          </article>
+
+          <article className="panel panel-wide">
+            <h2>Diff Review</h2>
+            {execution.diffSummary ? (
+              <>
+                <p className="subline">
+                  {execution.diffSummary.totalFiles} file(s) · +{execution.diffSummary.totalAdditions} / -
+                  {execution.diffSummary.totalDeletions}
+                </p>
+                <div className="review-grid">
+                  {execution.diffSummary.files.map((file) => (
+                    <section className="review-section" key={file.path}>
+                      <h3>{file.path}</h3>
+                      <p className="subline">
+                        {file.changeType} · +{file.additions} / -{file.deletions}
+                      </p>
+                      <pre className="prompt-preview">
+                        {file.patch ?? "No patch preview was captured for this file."}
+                      </pre>
+                    </section>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="empty-state">No diff summary was stored for this execution.</p>
+            )}
           </article>
 
           <article className="panel panel-wide">
@@ -589,100 +793,23 @@ export default async function ExecutionDetailPage({
           </article>
 
           <article className="panel panel-wide">
-            <h2>Execution Logs</h2>
-            {execution.logs.length === 0 ? (
-              <p className="empty-state">No execution logs have been recorded yet.</p>
-            ) : (
-              <pre className="prompt-preview">{execution.logs.join("\n")}</pre>
-            )}
-          </article>
-
-          <article className="panel panel-wide">
-            <h2>Checks</h2>
-            {checkRuns.length === 0 ? (
-              <p className="empty-state">No post-run checks were recorded for this execution.</p>
-            ) : (
-              <div className="review-grid">
-                {checkRuns.map((checkRun) => (
-                  <section className="review-section" key={checkRun.id}>
-                    <h3>
-                      {checkRun.name} · {formatCheckStatus(checkRun.status)}
-                    </h3>
-                    <p className="subline">
-                      {checkRun.command ?? "No command configured"}
-                      {typeof checkRun.exitCode === "number" ? ` · exit ${checkRun.exitCode}` : ""}
-                    </p>
-                    <pre className="prompt-preview">{checkRun.output || "No command output was captured."}</pre>
-                  </section>
-                ))}
+            <h2>Technical Details</h2>
+            <details className="disclosure">
+              <summary>Prompt snapshot</summary>
+              <div className="disclosure-body">
+                <pre className="prompt-preview">{execution.promptSnapshot}</pre>
               </div>
-            )}
-          </article>
-
-          <article className="panel">
-            <h2>Risk Summary</h2>
-            {execution.riskSummary ? (
-              <>
-                <p className="subline">Level {execution.riskSummary.level}</p>
-                <ul className="stack-list">
-                  {execution.riskSummary.reasons.map((reason) => (
-                    <li key={reason}>{reason}</li>
-                  ))}
-                </ul>
-                <h3>Suggested Actions</h3>
-                <ul className="stack-list">
-                  {execution.riskSummary.suggestedActions.map((action) => (
-                    <li key={action}>{action}</li>
-                  ))}
-                </ul>
-              </>
-            ) : (
-              <p className="empty-state">No additional risk summary was stored for this execution.</p>
-            )}
-          </article>
-
-          <article className="panel">
-            <h2>Changed Files</h2>
-            {execution.changedFiles.length === 0 ? (
-              <p className="empty-state">
-                {execution.artifactKind === "review_output"
-                  ? "No local changed files were detected. This run produced review output only."
-                  : "No changed files have been detected yet."}
-              </p>
-            ) : (
-              <ul className="stack-list">
-                {execution.changedFiles.map((file) => (
-                  <li key={file}>{file}</li>
-                ))}
-              </ul>
-            )}
-          </article>
-
-          <article className="panel panel-wide">
-            <h2>Diff Review</h2>
-            {execution.diffSummary ? (
-              <>
-                <p className="subline">
-                  {execution.diffSummary.totalFiles} file(s) · +{execution.diffSummary.totalAdditions} / -
-                  {execution.diffSummary.totalDeletions}
-                </p>
-                <div className="review-grid">
-                  {execution.diffSummary.files.map((file) => (
-                    <section className="review-section" key={file.path}>
-                      <h3>{file.path}</h3>
-                      <p className="subline">
-                        {file.changeType} · +{file.additions} / -{file.deletions}
-                      </p>
-                      <pre className="prompt-preview">
-                        {file.patch ?? "No patch preview was captured for this file."}
-                      </pre>
-                    </section>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <p className="empty-state">No diff summary was stored for this execution.</p>
-            )}
+            </details>
+            <details className="disclosure">
+              <summary>Execution logs</summary>
+              <div className="disclosure-body">
+                {execution.logs.length === 0 ? (
+                  <p className="empty-state">No execution logs have been recorded yet.</p>
+                ) : (
+                  <pre className="prompt-preview">{execution.logs.join("\n")}</pre>
+                )}
+              </div>
+            </details>
           </article>
 
           {execution.pullRequest ? (

@@ -35,6 +35,8 @@ import {
   rejectPlanArtifactForStoredTicket,
   rejectExecutionReview,
   rejectPromptReviewForStoredTicket,
+  reopenStoredTicket,
+  resolveStoredTicket,
   runWorkerPlanForStoredTicket,
   runWorkItemForStoredTicket,
   saveContextSettings,
@@ -124,6 +126,11 @@ const executionReviewBodySchema = z.object({
 
 const pullRequestBodySchema = z.object({
   overrideFailedChecks: z.boolean().default(false)
+});
+
+const resolveTicketBodySchema = z.object({
+  resolutionType: z.enum(["done", "manual_pr", "no_pr"]),
+  resolutionNote: z.string().trim().optional()
 });
 
 type WorkflowStage = "Inbox" | "Classified" | "Ready" | "Running" | "Review" | "Done";
@@ -492,6 +499,34 @@ export function buildServer() {
       workerPlans,
       workItems,
       executions
+    };
+  });
+
+  server.post("/tickets/:ticketId/resolve", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const ticketId = z.object({ ticketId: z.string() }).parse(request.params).ticketId;
+    const body = resolveTicketBodySchema.parse(request.body ?? {});
+    const [ticketRepository, executionRepository] = await Promise.all([
+      createSqliteTicketRepository({ startDirectory: targetDirectory }),
+      createSqliteExecutionRepository({ startDirectory: targetDirectory })
+    ]);
+
+    return {
+      ticket: await resolveStoredTicket(ticketRepository, executionRepository, ticketId, body)
+    };
+  });
+
+  server.post("/tickets/:ticketId/reopen", async (request) => {
+    const targetDirectory = resolveTargetDirectory(request.query);
+    const ticketId = z.object({ ticketId: z.string() }).parse(request.params).ticketId;
+    const [config, ticketRepository, executionRepository] = await Promise.all([
+      loadOpenTopConfig(undefined, targetDirectory),
+      createSqliteTicketRepository({ startDirectory: targetDirectory }),
+      createSqliteExecutionRepository({ startDirectory: targetDirectory })
+    ]);
+
+    return {
+      ticket: await reopenStoredTicket(ticketRepository, executionRepository, config, ticketId)
     };
   });
 
@@ -1049,14 +1084,23 @@ function enrichTicketSummary(ticket: Ticket, config: OpenTopConfigForManual, exe
     classification: executionPlan.classification,
     executionPlan,
     latestExecution,
-    workflowStage: deriveWorkflowStage(executionPlan.classification.approvalRequired, latestExecution)
+    workflowStage: deriveWorkflowStage(ticket, executionPlan.classification.approvalRequired, latestExecution)
   };
 }
 
 function deriveWorkflowStage(
+  ticket: Ticket,
   approvalRequired: boolean,
   latestExecution: Awaited<ReturnType<typeof listExecutions>>[number] | undefined
 ): WorkflowStage {
+  if (ticket.status === "done") {
+    return "Done";
+  }
+
+  if (ticket.status === "inbox" && !latestExecution) {
+    return "Inbox";
+  }
+
   if (!latestExecution) {
     return approvalRequired ? "Ready" : "Classified";
   }
@@ -1066,9 +1110,7 @@ function deriveWorkflowStage(
   }
 
   if (latestExecution.status === "succeeded") {
-    return latestExecution.reviewStatus === "approved" || latestExecution.reviewStatus === "not_required"
-      ? "Done"
-      : "Review";
+    return latestExecution.reviewStatus === "approved" || latestExecution.reviewStatus === "not_required" ? "Ready" : "Review";
   }
 
   if (latestExecution.status === "output_ready") {

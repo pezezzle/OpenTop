@@ -109,11 +109,11 @@ async function inspectCodexCliProvider(
   }
 
   for (const modelTier of modelTiers) {
-    if (!modelTier.model.includes("codex")) {
+    if (shouldWarnForCodexCliModel(modelTier.model)) {
       issues.push({
         severity: "warning",
         code: "model_may_not_be_supported",
-        message: `Model tier "${modelTier.tier}" uses "${modelTier.model}" with codex-cli. ChatGPT-backed Codex accounts often reject non-Codex models such as "gpt-5.3" or "gpt-5.5-thinking". Prefer a Codex-supported model such as "gpt-5-codex".`
+        message: `Model tier "${modelTier.tier}" uses "${modelTier.model}" with codex-cli. ChatGPT-backed Codex accounts can reject models such as "gpt-5-codex", "gpt-5.3", or "gpt-5.5-thinking". Prefer models that codex-cli accepts broadly for ChatGPT accounts, such as "gpt-5.4-mini" for cheaper runs or "gpt-5.5" for stronger runs.`
       });
     }
   }
@@ -399,4 +399,14 @@ function extractFirstLine(value: string): string | undefined {
   }
 
   return trimmed.split(/\r?\n/u)[0];
+}
+
+function shouldWarnForCodexCliModel(model: string): boolean {
+  const normalized = model.trim().toLowerCase();
+
+  if (normalized === "gpt-5-codex" || normalized === "gpt-5.3" || normalized === "gpt-5.5-thinking") {
+    return true;
+  }
+
+  return false;
 }

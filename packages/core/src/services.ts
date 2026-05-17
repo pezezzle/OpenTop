@@ -1015,6 +1015,52 @@ export async function listExecutions(repository: ExecutionRepository): Promise<E
   return repository.list();
 }
 
+export async function resolveStoredTicket(
+  ticketRepository: TicketRepository,
+  executionRepository: ExecutionRepository,
+  ticketId: string,
+  input: {
+    resolutionType: "done" | "manual_pr" | "no_pr";
+    resolutionNote?: string;
+  }
+): Promise<Ticket> {
+  const ticket = await getRequiredTicket(ticketRepository, ticketId);
+  const latestExecution = await getLatestExecutionForTicket(executionRepository, ticketId);
+
+  if (latestExecution?.status === "planned" || latestExecution?.status === "queued" || latestExecution?.status === "running") {
+    throw new Error("You cannot close a ticket while its latest execution is still active.");
+  }
+
+  if (latestExecution?.status === "succeeded" && latestExecution.reviewStatus === "pending") {
+    throw new Error("Review the latest successful execution before marking this ticket as done.");
+  }
+
+  return ticketRepository.update(ticket.id, {
+    status: "done",
+    resolutionType: input.resolutionType,
+    resolutionNote: input.resolutionNote,
+    resolvedAt: new Date().toISOString()
+  });
+}
+
+export async function reopenStoredTicket(
+  ticketRepository: TicketRepository,
+  executionRepository: ExecutionRepository,
+  config: OpenTopConfig,
+  ticketId: string
+): Promise<Ticket> {
+  const ticket = await getRequiredTicket(ticketRepository, ticketId);
+  const latestExecution = await getLatestExecutionForTicket(executionRepository, ticketId);
+  const classification = classifyTicket(ticket, config);
+
+  return ticketRepository.update(ticket.id, {
+    status: deriveActiveTicketStatus(classification.approvalRequired, latestExecution),
+    resolutionType: undefined,
+    resolutionNote: undefined,
+    resolvedAt: undefined
+  });
+}
+
 export async function getExecution(repository: ExecutionRepository, executionId: string): Promise<Execution> {
   const execution = await repository.findById(executionId);
 
@@ -1884,4 +1930,37 @@ async function getRequiredTicket(repository: TicketRepository, ticketId: string)
   }
 
   return ticket;
+}
+
+async function getLatestExecutionForTicket(
+  executionRepository: ExecutionRepository,
+  ticketId: string
+): Promise<Execution | undefined> {
+  const executions = await executionRepository.listByTicketId(ticketId);
+  return [...executions].sort((left, right) => Number(right.id) - Number(left.id))[0];
+}
+
+function deriveActiveTicketStatus(
+  approvalRequired: boolean,
+  latestExecution: Execution | undefined
+): Ticket["status"] {
+  if (!latestExecution) {
+    return approvalRequired ? "ready" : "classified";
+  }
+
+  if (latestExecution.status === "planned" || latestExecution.status === "queued" || latestExecution.status === "running") {
+    return "running";
+  }
+
+  if (latestExecution.status === "output_ready") {
+    return "review";
+  }
+
+  if (latestExecution.status === "succeeded") {
+    return latestExecution.reviewStatus === "approved" || latestExecution.reviewStatus === "not_required"
+      ? "ready"
+      : "review";
+  }
+
+  return "classified";
 }

@@ -4,6 +4,7 @@ import type {
   ExecutionMode,
   ExecutionStatus,
   RiskLevel,
+  TicketResolutionType,
   TicketSource,
   TicketStatus
 } from "@opentop/shared";
@@ -69,6 +70,9 @@ export interface Ticket {
   description: string;
   labels: string[];
   status: TicketStatus;
+  resolutionType?: TicketResolutionType;
+  resolutionNote?: string;
+  resolvedAt?: string;
   classification?: Classification;
 }
 
@@ -79,6 +83,16 @@ export interface TicketCreateInput {
   description: string;
   labels: string[];
   status?: TicketStatus;
+  resolutionType?: TicketResolutionType;
+  resolutionNote?: string;
+  resolvedAt?: string;
+}
+
+export interface TicketUpdateInput {
+  status?: TicketStatus;
+  resolutionType?: TicketResolutionType;
+  resolutionNote?: string;
+  resolvedAt?: string;
 }
 
 export interface Classification {

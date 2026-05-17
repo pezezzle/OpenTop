@@ -16,6 +16,8 @@ import {
   rejectExecutionReview,
   rejectPlanArtifact,
   rejectPromptReview,
+  reopenTicket,
+  resolveTicket,
   runWorkItem,
   runWorkerPlan,
   runTicket,
@@ -34,6 +36,14 @@ function parseLabels(value: FormDataEntryValue | null): string[] {
     .split(",")
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function getActionErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+
+  return "The requested action could not be completed.";
 }
 
 export async function createTicketAction(formData: FormData) {
@@ -132,11 +142,51 @@ export async function createPullRequestAction(formData: FormData) {
     throw new Error("Missing pull request creation fields.");
   }
 
-  await createDraftPullRequest(executionId, overrideFailedChecks);
+  try {
+    await createDraftPullRequest(executionId, overrideFailedChecks);
+    revalidatePath("/");
+    revalidatePath(`/tickets/${ticketId}`);
+    revalidatePath(`/executions/${executionId}`);
+    redirect(`/executions/${executionId}?pullRequest=created`);
+  } catch (error) {
+    const params = new URLSearchParams({
+      pullRequest: "blocked",
+      reason: getActionErrorMessage(error)
+    });
+
+    redirect(`/executions/${executionId}?${params.toString()}`);
+  }
+}
+
+export async function resolveTicketAction(formData: FormData) {
+  const ticketId = String(formData.get("ticketId") ?? "").trim();
+  const resolutionType = String(formData.get("resolutionType") ?? "").trim();
+  const resolutionNote = String(formData.get("resolutionNote") ?? "").trim();
+
+  if (!ticketId || !resolutionType) {
+    throw new Error("Missing ticket resolution fields.");
+  }
+
+  await resolveTicket(ticketId, {
+    resolutionType: resolutionType as "done" | "manual_pr" | "no_pr",
+    resolutionNote: resolutionNote || undefined
+  });
   revalidatePath("/");
   revalidatePath(`/tickets/${ticketId}`);
-  revalidatePath(`/executions/${executionId}`);
-  redirect(`/executions/${executionId}?pullRequest=created`);
+  redirect(`/tickets/${ticketId}?ticket=resolved`);
+}
+
+export async function reopenTicketAction(formData: FormData) {
+  const ticketId = String(formData.get("ticketId") ?? "").trim();
+
+  if (!ticketId) {
+    throw new Error("Missing ticketId.");
+  }
+
+  await reopenTicket(ticketId);
+  revalidatePath("/");
+  revalidatePath(`/tickets/${ticketId}`);
+  redirect(`/tickets/${ticketId}?ticket=reopened`);
 }
 
 export async function updateBranchPolicyAction(formData: FormData) {

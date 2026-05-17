@@ -40,6 +40,9 @@ export async function createOpenTopSqliteContext(
       description TEXT NOT NULL,
       labels TEXT NOT NULL,
       status TEXT NOT NULL,
+      resolution_type TEXT,
+      resolution_note TEXT,
+      resolved_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -208,6 +211,14 @@ function applySchemaMigrations(sqlite: Database): number {
       apply: () => {
         ensureWorkerPlanColumn(sqlite, "integration_summary", "TEXT");
       }
+    },
+    {
+      version: 4,
+      apply: () => {
+        ensureTicketColumn(sqlite, "resolution_type", "TEXT");
+        ensureTicketColumn(sqlite, "resolution_note", "TEXT");
+        ensureTicketColumn(sqlite, "resolved_at", "TEXT");
+      }
     }
   ];
 
@@ -243,6 +254,20 @@ function ensureExecutionColumn(sqlite: Database, columnName: string, columnDefin
   }
 
   sqlite.exec(`ALTER TABLE executions ADD COLUMN ${columnName} ${columnDefinition};`);
+}
+
+function ensureTicketColumn(sqlite: Database, columnName: string, columnDefinition: string): void {
+  const result = sqlite.exec("PRAGMA table_info(tickets);");
+  const columns =
+    result[0]?.values
+      ?.map((row) => String(row[1]))
+      .filter((value) => value.length > 0) ?? [];
+
+  if (columns.includes(columnName)) {
+    return;
+  }
+
+  sqlite.exec(`ALTER TABLE tickets ADD COLUMN ${columnName} ${columnDefinition};`);
 }
 
 function ensureWorkerPlanColumn(sqlite: Database, columnName: string, columnDefinition: string): void {

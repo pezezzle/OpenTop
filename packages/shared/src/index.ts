@@ -4,6 +4,7 @@ export const OPENTOP_CLAIM = "The control plane for agentic software development
 
 export type TicketSource = "manual" | "github" | "linear" | "jira" | "trello" | "azure-devops";
 export type TicketStatus = "inbox" | "classified" | "ready" | "running" | "review" | "done";
+export type TicketResolutionType = "done" | "manual_pr" | "no_pr";
 export type RiskLevel = "low" | "medium" | "high" | "critical";
 export type ComplexityLevel = "low" | "medium" | "high";
 export type ExecutionMode =

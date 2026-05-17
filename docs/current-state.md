@@ -63,8 +63,8 @@ create ticket
 -> run provider
 -> inspect execution checks, diff, risk summary, and review status
 -> review output and trigger follow-up execution when needed
--> approve or reject code-changing executions before they count as done
--> create a draft pull request from an approved execution
+-> approve or reject code-changing executions
+-> either resolve the ticket manually or create a draft pull request
 ```
 
 The Web UI now shows the same stored data:
@@ -146,6 +146,7 @@ The API exposes real local data for Web:
 - worker-plan and work-item execution endpoints
 - execution start with branch preparation and provider run
 - execution review approval/rejection endpoints
+- ticket resolve/reopen endpoints for manual closure flows
 - draft pull-request creation endpoint for approved executions
 - OAuth connect, exchange, and disconnect endpoints for hosted providers
 - executions
@@ -157,7 +158,7 @@ The API listens on port `4317` by default.
 The Web UI currently has:
 
 - `/`: execution board
-- `/tickets/[ticketId]`: ticket detail, classification, prompt preview, prompt review status, prompt history, prompt diff, plan review status, plan history, plan diff, worker plan generation/history, worker-plan run controls, work-item inspection, and executions
+- `/tickets/[ticketId]`: ticket detail, classification, prompt preview, prompt review status, prompt history, prompt diff, plan review status, plan history, plan diff, worker plan generation/history, work-item inspection, executions, and explicit ticket-resolution controls
 - `/tickets/[ticketId]`: classification now includes task type, detected signals, provider/model suggestion, reasoning, and prompt approval requirement
 - `/executions/[executionId]`: execution detail, prompt snapshot, structured review output, checks, execution logs, changed files, diff review, risk summary, review decision actions, and draft PR creation/output
 - `/settings`: branch policy settings plus provider health, compatibility warnings, and OAuth connection status
@@ -191,7 +192,7 @@ This state directory is ignored by Git and should not be committed.
 
 Sequential worker-plan execution uses Git worktrees outside the target repository under a sibling `.opentop-worktrees/` directory so independent work-item branches can accumulate changes without dirtying the root working tree.
 
-Successful workspace-changing executions no longer count as effectively done on their own. They enter review with stored check runs, diff summaries, and a `pending` execution review status until a human explicitly approves or rejects them. Once approved, OpenTop can push the execution branch and open a GitHub draft pull request using `GITHUB_TOKEN` or `GH_TOKEN`.
+Successful workspace-changing executions no longer count as effectively done on their own. They enter review with stored check runs, diff summaries, and a `pending` execution review status until a human explicitly approves or rejects them. Once approved, OpenTop can either mark the ticket as done through an explicit manual-resolution step or push the execution branch and open a GitHub draft pull request using `GITHUB_TOKEN` or `GH_TOKEN`.
 
 The global `opentop` command is currently a local development link to the built CLI in this repo.
 

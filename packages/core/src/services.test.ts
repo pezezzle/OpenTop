@@ -5,7 +5,9 @@ import {
   approvePromptReviewForStoredTicket,
   createDraftPullRequestForExecution,
   generateWorkerPlanForStoredTicket,
+  reopenStoredTicket,
   rejectPromptReviewForStoredTicket,
+  resolveStoredTicket,
   runWorkerPlanForStoredTicket,
   startExecutionForStoredTicket
 } from "./services.js";
@@ -40,6 +42,7 @@ import type {
   PromptReviewUpdateInput,
   RepositoryState,
   Ticket,
+  TicketUpdateInput,
   WorkItem,
   WorkItemCreateInput,
   WorkItemUpdateInput,
@@ -48,8 +51,16 @@ import type {
   WorkerPlanUpdateInput
 } from "./types.js";
 
+function requireExecutionId(runResult: Awaited<ReturnType<typeof startExecutionForStoredTicket>>): string {
+  if (runResult.status === "blocked") {
+    assert.fail(`Expected execution to start, but it was blocked by ${runResult.blocker}.`);
+  }
+
+  return runResult.execution.id;
+}
+
 class InMemoryTicketRepository implements TicketRepository {
-  constructor(private readonly ticket: Ticket) {}
+  constructor(private ticket: Ticket) {}
 
   async create(): Promise<Ticket> {
     throw new Error("Not implemented in test repository.");
@@ -61,6 +72,19 @@ class InMemoryTicketRepository implements TicketRepository {
 
   async list(): Promise<Ticket[]> {
     return [this.ticket];
+  }
+
+  async update(id: string, input: TicketUpdateInput): Promise<Ticket> {
+    if (id !== this.ticket.id) {
+      throw new Error(`Ticket ${id} not found.`);
+    }
+
+    this.ticket = {
+      ...this.ticket,
+      ...input
+    };
+
+    return this.ticket;
   }
 }
 
@@ -795,6 +819,151 @@ test("createDraftPullRequestForExecution renders a draft PR after approved execu
   assert.equal(pullRequestService.requests.length, 1);
   assert.match(pullRequestService.requests[0]?.body ?? "", /OpenTop execution/);
   assert.match(pullRequestService.requests[0]?.body ?? "", /build: passed/);
+});
+
+test("resolveStoredTicket marks an approved execution as done for manual PR handling", async () => {
+  const ticket = createTicket("ticket-resolve-1", "Resolve after manual review");
+  const ticketRepository = new InMemoryTicketRepository(ticket);
+  const promptReviewRepository = new InMemoryPromptReviewRepository();
+  const planArtifactRepository = new InMemoryPlanArtifactRepository();
+  const executionRepository = new InMemoryExecutionRepository();
+  const checkRunRepository = new InMemoryCheckRunRepository();
+  const executionWorkspace = new FakeExecutionWorkspace(
+    {
+      branchName: "feature/opentop-ticket-resolve-1",
+      logs: ["Prepared feature branch."]
+    },
+    {
+      currentBranch: "feature/opentop-ticket-resolve-1",
+      isClean: false,
+      changedFiles: ["src/provider.ts"]
+    },
+    {
+      totalFiles: 1,
+      totalAdditions: 2,
+      totalDeletions: 1,
+      files: [
+        {
+          path: "src/provider.ts",
+          changeType: "modified",
+          additions: 2,
+          deletions: 1,
+          patch: "@@ -1 +1 @@\n-old\n+new"
+        }
+      ]
+    }
+  );
+  const executionProvider = new FakeExecutionProvider({
+    success: true,
+    summary: "Generated local changes.",
+    artifactKind: "workspace_changes",
+    changedFiles: [],
+    logs: ["Provider changed files."]
+  });
+
+  const runResult = await startExecutionForStoredTicket(
+    ticketRepository,
+    promptReviewRepository,
+    planArtifactRepository,
+    executionRepository,
+    checkRunRepository,
+    executionWorkspace,
+    executionProvider,
+    createConfig("implement_only"),
+    baseProjectContext,
+    ticket.id,
+    {
+      currentBranch: "feature/provider-work",
+      isClean: true,
+      changedFiles: []
+    }
+  );
+  await approveExecutionReview(executionRepository, checkRunRepository, requireExecutionId(runResult));
+
+  const resolvedTicket = await resolveStoredTicket(ticketRepository, executionRepository, ticket.id, {
+    resolutionType: "manual_pr",
+    resolutionNote: "Will open the GitHub PR manually after a last IDE pass."
+  });
+
+  assert.equal(resolvedTicket.status, "done");
+  assert.equal(resolvedTicket.resolutionType, "manual_pr");
+  assert.equal(resolvedTicket.resolutionNote, "Will open the GitHub PR manually after a last IDE pass.");
+  assert.ok(resolvedTicket.resolvedAt);
+});
+
+test("reopenStoredTicket restores a resolved ticket to an actionable state", async () => {
+  const ticket = createTicket("ticket-resolve-2", "Reopen after manual done");
+  const ticketRepository = new InMemoryTicketRepository(ticket);
+  const promptReviewRepository = new InMemoryPromptReviewRepository();
+  const planArtifactRepository = new InMemoryPlanArtifactRepository();
+  const executionRepository = new InMemoryExecutionRepository();
+  const checkRunRepository = new InMemoryCheckRunRepository();
+  const executionWorkspace = new FakeExecutionWorkspace(
+    {
+      branchName: "feature/opentop-ticket-resolve-2",
+      logs: ["Prepared feature branch."]
+    },
+    {
+      currentBranch: "feature/opentop-ticket-resolve-2",
+      isClean: false,
+      changedFiles: ["src/provider.ts"]
+    },
+    {
+      totalFiles: 1,
+      totalAdditions: 2,
+      totalDeletions: 1,
+      files: [
+        {
+          path: "src/provider.ts",
+          changeType: "modified",
+          additions: 2,
+          deletions: 1,
+          patch: "@@ -1 +1 @@\n-old\n+new"
+        }
+      ]
+    }
+  );
+  const executionProvider = new FakeExecutionProvider({
+    success: true,
+    summary: "Generated local changes.",
+    artifactKind: "workspace_changes",
+    changedFiles: [],
+    logs: ["Provider changed files."]
+  });
+
+  const runResult = await startExecutionForStoredTicket(
+    ticketRepository,
+    promptReviewRepository,
+    planArtifactRepository,
+    executionRepository,
+    checkRunRepository,
+    executionWorkspace,
+    executionProvider,
+    createConfig("implement_only"),
+    baseProjectContext,
+    ticket.id,
+    {
+      currentBranch: "feature/provider-work",
+      isClean: true,
+      changedFiles: []
+    }
+  );
+  await approveExecutionReview(executionRepository, checkRunRepository, requireExecutionId(runResult));
+  await resolveStoredTicket(ticketRepository, executionRepository, ticket.id, {
+    resolutionType: "manual_pr"
+  });
+
+  const reopenedTicket = await reopenStoredTicket(
+    ticketRepository,
+    executionRepository,
+    createConfig("implement_only"),
+    ticket.id
+  );
+
+  assert.equal(reopenedTicket.status, "ready");
+  assert.equal(reopenedTicket.resolutionType, undefined);
+  assert.equal(reopenedTicket.resolutionNote, undefined);
+  assert.equal(reopenedTicket.resolvedAt, undefined);
 });
 
 test("startExecutionForStoredTicket blocks review-only executions until the latest prompt is approved", async () => {

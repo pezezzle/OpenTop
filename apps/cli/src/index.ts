@@ -884,7 +884,7 @@ function defaultBaseUrlForType(providerType: string, connectionMethod: ProviderC
 
 function defaultModelForTier(providerType: string, tier: "cheap" | "strong" | "local"): string | undefined {
   if (providerType === "codex-cli") {
-    return "gpt-5-codex";
+    return tier === "cheap" ? "gpt-5.4-mini" : "gpt-5.5";
   }
 
   if (providerType === "openai-api") {
@@ -892,7 +892,7 @@ function defaultModelForTier(providerType: string, tier: "cheap" | "strong" | "l
   }
 
   if (providerType === "openai-codex") {
-    return "gpt-5-codex";
+    return tier === "cheap" ? "gpt-5.4-mini" : "gpt-5.5";
   }
 
   if (providerType === "openrouter-api") {

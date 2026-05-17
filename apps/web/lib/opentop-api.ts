@@ -103,6 +103,9 @@ export interface TicketSummary {
   description: string;
   labels: string[];
   status: string;
+  resolutionType?: "done" | "manual_pr" | "no_pr";
+  resolutionNote?: string;
+  resolvedAt?: string;
   classification: {
     taskType: string;
     risk: string;
@@ -690,6 +693,23 @@ export async function createDraftPullRequest(
     body: JSON.stringify({
       overrideFailedChecks
     })
+  });
+}
+
+export async function resolveTicket(
+  ticketId: string,
+  input: { resolutionType: "done" | "manual_pr" | "no_pr"; resolutionNote?: string }
+): Promise<{ ticket: TicketSummary }> {
+  return apiFetch(`/tickets/${ticketId}/resolve`, {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+}
+
+export async function reopenTicket(ticketId: string): Promise<{ ticket: TicketSummary }> {
+  return apiFetch(`/tickets/${ticketId}/reopen`, {
+    method: "POST",
+    body: JSON.stringify({})
   });
 }
 

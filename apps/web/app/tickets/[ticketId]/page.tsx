@@ -4,10 +4,12 @@ import {
   approvePlanArtifactAction,
   approvePromptReviewAction,
   generateWorkerPlanAction,
+  reopenTicketAction,
   regeneratePlanArtifactAction,
   regeneratePromptReviewAction,
   rejectPlanArtifactAction,
   rejectPromptReviewAction,
+  resolveTicketAction,
   runWorkItemAction,
   runWorkerPlanAction,
   runTicketAction
@@ -125,6 +127,171 @@ function latestExecutionForWorkItem(detail: Awaited<ReturnType<typeof getTicket>
   return detail.executions.find((execution) => execution.workItemId === workItemId);
 }
 
+function buildTicketFlow(
+  detail: Awaited<ReturnType<typeof getTicket>>,
+  latestExecution: Awaited<ReturnType<typeof getTicket>>["executions"][number] | undefined,
+  currentPlanArtifact: PlanArtifact | undefined,
+  currentWorkerPlan: WorkerPlan | undefined
+): Array<{ label: string; state: "done" | "current" | "upcoming" }> {
+  const promptDone = !detail.classification.approvalRequired || detail.promptReview.status === "approved";
+  const planRequired = planWorkflowEnabled(detail);
+  const planDone = !planRequired || currentPlanArtifact?.status === "approved";
+  const workerPlanDone = !planRequired || !!currentWorkerPlan;
+  const executionDone = !!latestExecution;
+  const reviewDone =
+    !latestExecution ||
+    latestExecution.reviewStatus === "approved" ||
+    latestExecution.artifactKind === "review_output" ||
+    latestExecution.status === "failed";
+  const closureDone = detail.ticket.status === "done";
+
+  const states = [
+    { label: "Prompt", done: promptDone },
+    { label: "Plan", done: planDone },
+    { label: "Worker Plan", done: workerPlanDone },
+    { label: "Execution", done: executionDone },
+    { label: "Review", done: reviewDone },
+    { label: "Close", done: closureDone }
+  ];
+  const firstUpcomingIndex = states.findIndex((step) => !step.done);
+
+  return states.map((step, index) => ({
+    label: step.label,
+    state:
+      step.done ? "done" : index === firstUpcomingIndex || firstUpcomingIndex === -1 ? "current" : "upcoming"
+  }));
+}
+
+function getTicketActionCenter(input: {
+  detail: Awaited<ReturnType<typeof getTicket>>;
+  latestExecution: Awaited<ReturnType<typeof getTicket>>["executions"][number] | undefined;
+  currentPlanArtifact: PlanArtifact | undefined;
+  approvedPlanArtifact: PlanArtifact | undefined;
+  currentWorkerPlan: WorkerPlan | undefined;
+  workerPlanNeedsRefresh: boolean;
+}): { tone: "info" | "warning" | "success"; title: string; body: string } {
+  const { detail, latestExecution, currentPlanArtifact, approvedPlanArtifact, currentWorkerPlan, workerPlanNeedsRefresh } =
+    input;
+
+  if (detail.ticket.status === "done") {
+    const resolutionLabel =
+      detail.ticket.resolutionType === "manual_pr"
+        ? "This ticket is closed in OpenTop and the pull request will be handled manually."
+        : detail.ticket.resolutionType === "no_pr"
+          ? "This ticket is closed in OpenTop without a pull-request follow-up."
+          : "This ticket is marked done in OpenTop.";
+
+    return {
+      tone: "success",
+      title: "Ticket closed",
+      body: resolutionLabel
+    };
+  }
+
+  if (latestExecution?.pullRequest) {
+    return {
+      tone: "success",
+      title: "Draft pull request created",
+      body: "The latest execution has already moved into the PR stage. Review the draft on GitHub or continue with follow-up ticket work."
+    };
+  }
+
+  if (latestExecution?.status === "succeeded" && latestExecution.reviewStatus === "approved") {
+    return {
+      tone: "success",
+      title: "Ready to finish",
+      body: "The latest workspace-changing execution has already been reviewed and approved. You can now create a draft pull request or mark the ticket done manually."
+    };
+  }
+
+  if (latestExecution?.status === "succeeded" && latestExecution.reviewStatus === "pending") {
+    return {
+      tone: "warning",
+      title: "Review the latest execution",
+      body: "Open the newest execution, inspect the diff, checks, and risk summary, then approve or reject the change set."
+    };
+  }
+
+  if (latestExecution?.status === "output_ready") {
+    return {
+      tone: "info",
+      title: "Review the provider output",
+      body: "This ticket currently has a plan, patch proposal, or review note waiting for a human decision before the next execution starts."
+    };
+  }
+
+  if (latestExecution?.status === "failed") {
+    return {
+      tone: "warning",
+      title: "Inspect the failed execution",
+      body: "The latest run stopped before completion. Open the execution details, read the failure message, and decide whether to retry, revise, or reroute."
+    };
+  }
+
+  if (detail.classification.approvalRequired && detail.promptReview.status !== "approved") {
+    return {
+      tone: "info",
+      title: "Approve the prompt first",
+      body: "This ticket is gated on prompt review. Approve or reject the current prompt version before you start another execution."
+    };
+  }
+
+  if (currentPlanArtifact?.status === "draft") {
+    return {
+      tone: "info",
+      title: "Review the draft plan",
+      body: "The planner has already produced a draft. Confirm the approach before implementation continues."
+    };
+  }
+
+  if (approvedPlanArtifact && !currentWorkerPlan) {
+    return {
+      tone: "info",
+      title: "Generate a worker plan",
+      body: "The approved feature plan is ready to split into work items for orchestrated execution."
+    };
+  }
+
+  if (workerPlanNeedsRefresh) {
+    return {
+      tone: "warning",
+      title: "Refresh the worker plan",
+      body: "The latest approved plan is newer than the current worker plan. Regenerate it before starting more work-item runs."
+    };
+  }
+
+  if (currentWorkerPlan) {
+    return {
+      tone: "info",
+      title: "Run the worker plan",
+      body: "The ticket is ready to execute its next ready work item or continue orchestrated feature work."
+    };
+  }
+
+  return {
+    tone: "info",
+    title: "Ready to start execution",
+    body: "The ticket has enough routing information to start the next run. Use the primary action when you want OpenTop to continue."
+  };
+}
+
+function sentenceCase(value: string): string {
+  return value.replaceAll("_", " ");
+}
+
+function formatResolutionType(value: "done" | "manual_pr" | "no_pr" | undefined): string {
+  switch (value) {
+    case "manual_pr":
+      return "PR handled manually";
+    case "no_pr":
+      return "Done without PR";
+    case "done":
+      return "Closed";
+    default:
+      return "Not resolved";
+  }
+}
+
 export default async function TicketDetailPage({
   params,
   searchParams
@@ -143,6 +310,7 @@ export default async function TicketDetailPage({
     planArtifactStatus?: string;
     workerPlan?: string;
     workerRun?: string;
+    ticket?: string;
   }>;
 }) {
   const { ticketId } = await params;
@@ -154,7 +322,7 @@ export default async function TicketDetailPage({
     const currentPromptReview = detail.promptReview;
     const previousPromptReview = detail.promptReviews.find((promptReview) => promptReview.id !== currentPromptReview.id);
     const promptDiff = buildDiff(currentPromptReview.promptSnapshot, previousPromptReview?.promptSnapshot);
-    const currentPlanArtifact = detail.planArtifact;
+    const currentPlanArtifact = detail.planArtifact ?? undefined;
     const previousPlanArtifact = currentPlanArtifact
       ? detail.planArtifacts.find((planArtifact) => planArtifact.id !== currentPlanArtifact.id)
       : undefined;
@@ -162,13 +330,22 @@ export default async function TicketDetailPage({
     const blockedNotice = buildBlockedNotice(query);
     const usesPlanWorkflow = planWorkflowEnabled(detail);
     const approvedPlanArtifact = latestApprovedPlanArtifact(detail);
-    const currentWorkerPlan = detail.workerPlan;
+    const currentWorkerPlan = detail.workerPlan ?? undefined;
     const workerPlanNeedsRefresh = approvedPlanArtifact
       ? !currentWorkerPlan || currentWorkerPlan.sourcePlanArtifactId !== approvedPlanArtifact.id
       : false;
     const currentWorkItems = currentWorkerPlan
       ? detail.workItems.filter((workItem) => workItem.workerPlanId === currentWorkerPlan.id)
       : [];
+    const ticketFlow = buildTicketFlow(detail, latestExecution, currentPlanArtifact, currentWorkerPlan);
+    const actionCenter = getTicketActionCenter({
+      detail,
+      latestExecution,
+      currentPlanArtifact,
+      approvedPlanArtifact,
+      currentWorkerPlan,
+      workerPlanNeedsRefresh
+    });
 
     return (
       <main className="detail-shell">
@@ -177,18 +354,30 @@ export default async function TicketDetailPage({
             <p className="eyebrow">Ticket Detail</p>
             <h1>{detail.ticket.title}</h1>
             <p className="subline">
-              Ticket #{detail.ticket.id} · {detail.ticket.source} · profile {detail.executionPlan.profile.id} · mode{" "}
-              {detail.executionPlan.profile.mode}
+              Ticket #{detail.ticket.id} · {detail.ticket.source} · profile {detail.executionPlan.profile.id} · next mode{" "}
+              {detail.executionPlan.profile.mode.replaceAll("_", " ")}
             </p>
           </div>
           <div className="detail-actions">
             <Link className="ghost-button" href="/">
               Back to board
             </Link>
-            <form action={runTicketAction}>
-              <input name="ticketId" type="hidden" value={detail.ticket.id} />
-              <button type="submit">Start execution</button>
-            </form>
+            {latestExecution ? (
+              <Link className="ghost-button" href={`/executions/${latestExecution.id}`}>
+                Open latest execution
+              </Link>
+            ) : null}
+            {detail.ticket.status === "done" ? (
+              <form action={reopenTicketAction}>
+                <input name="ticketId" type="hidden" value={detail.ticket.id} />
+                <button type="submit">Reopen ticket</button>
+              </form>
+            ) : (
+              <form action={runTicketAction}>
+                <input name="ticketId" type="hidden" value={detail.ticket.id} />
+                <button type="submit">Start execution</button>
+              </form>
+            )}
           </div>
         </header>
 
@@ -254,6 +443,14 @@ export default async function TicketDetailPage({
           </section>
         ) : null}
 
+        {query.ticket === "resolved" ? (
+          <section className="notice notice-success">Ticket marked done. You can still reopen it later if follow-up work appears.</section>
+        ) : null}
+
+        {query.ticket === "reopened" ? (
+          <section className="notice notice-info">Ticket reopened. It is back in the active workflow.</section>
+        ) : null}
+
         {detail.classification.approvalRequired && currentPromptReview.status !== "approved" ? (
           <section className="notice notice-info">
             This ticket requires prompt approval before execution. Current prompt review status:{" "}
@@ -282,9 +479,11 @@ export default async function TicketDetailPage({
           </section>
         ) : null}
 
-        {latestExecution?.status === "succeeded" && latestExecution.reviewStatus === "approved" ? (
+        {detail.ticket.status !== "done" &&
+        latestExecution?.status === "succeeded" &&
+        latestExecution.reviewStatus === "approved" ? (
           <section className="notice notice-success">
-            The latest execution has been reviewed and approved. It is ready for the later PR flow.
+            The latest execution has been reviewed and approved. You can now create a draft PR or close the ticket manually.
           </section>
         ) : null}
 
@@ -296,6 +495,57 @@ export default async function TicketDetailPage({
             </a>
           </section>
         ) : null}
+
+        <section className="workflow-summary">
+          <article className={`action-banner action-banner-${actionCenter.tone}`}>
+            <p className="action-banner-label">Current Focus</p>
+            <h2>{actionCenter.title}</h2>
+            <p>{actionCenter.body}</p>
+          </article>
+
+          <article className="flow-card">
+            <div className="panel-heading">
+              <div>
+                <h2>Workflow</h2>
+                <p className="subline">The ticket moves through review gates only when the current step is complete.</p>
+              </div>
+            </div>
+            <div className="flow-steps">
+              {ticketFlow.map((step) => (
+                <div className={`flow-step flow-step-${step.state}`} key={step.label}>
+                  <span>{step.label}</span>
+                  <strong>{step.state === "done" ? "Done" : step.state === "current" ? "Now" : "Later"}</strong>
+                </div>
+              ))}
+            </div>
+          </article>
+        </section>
+
+        <section className="summary-strip" aria-label="Ticket summary">
+          <article className="summary-card">
+            <span className="summary-label">Task Type</span>
+            <strong className="summary-value">{detail.classification.taskType}</strong>
+            <p className="summary-copy">
+              Risk {detail.classification.risk} · complexity {detail.classification.complexity}
+            </p>
+          </article>
+          <article className="summary-card">
+            <span className="summary-label">Routing</span>
+            <strong className="summary-value">{detail.executionPlan.profile.id}</strong>
+            <p className="summary-copy">
+              {detail.executionPlan.providerId}/{detail.executionPlan.modelId}
+            </p>
+          </article>
+          <article className="summary-card">
+            <span className="summary-label">Latest Run</span>
+            <strong className="summary-value">
+              {latestExecution ? formatExecutionStatus(latestExecution.status) : "none"}
+            </strong>
+            <p className="summary-copy">
+              {latestExecution ? `Review ${latestExecution.reviewStatus.replace("_", " ")}` : "No executions stored yet."}
+            </p>
+          </article>
+        </section>
 
         <section className="detail-grid">
           <article className="panel">
@@ -311,9 +561,29 @@ export default async function TicketDetailPage({
                 <dd>{detail.ticket.workflowStage}</dd>
               </div>
               <div>
+                <dt>Ticket Status</dt>
+                <dd>{detail.ticket.status}</dd>
+              </div>
+              <div>
                 <dt>Branch</dt>
                 <dd>{detail.executionPlan.branchName}</dd>
               </div>
+              <div>
+                <dt>Resolution</dt>
+                <dd>{formatResolutionType(detail.ticket.resolutionType)}</dd>
+              </div>
+              {detail.ticket.resolutionNote ? (
+                <div>
+                  <dt>Resolution Note</dt>
+                  <dd>{detail.ticket.resolutionNote}</dd>
+                </div>
+              ) : null}
+              {detail.ticket.resolvedAt ? (
+                <div>
+                  <dt>Resolved</dt>
+                  <dd>{new Date(detail.ticket.resolvedAt).toLocaleString()}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt>Prompt Approval</dt>
                 <dd>{detail.classification.approvalRequired ? "required" : "optional"}</dd>
@@ -350,27 +620,20 @@ export default async function TicketDetailPage({
           </article>
 
           <article className="panel">
-            <h2>Classification</h2>
+            <h2>Routing Decision</h2>
+            <p className="subline">
+              OpenTop treats this as <strong>{detail.classification.taskType}</strong> work with{" "}
+              <strong>{detail.classification.risk}</strong> change risk and <strong>{detail.classification.complexity}</strong>{" "}
+              expected size.
+            </p>
             <dl className="stacked-meta">
               <div>
-                <dt>Task Type</dt>
-                <dd>{detail.classification.taskType}</dd>
+                <dt>Profile</dt>
+                <dd>{detail.executionPlan.profile.id}</dd>
               </div>
               <div>
-                <dt>Risk</dt>
-                <dd>{detail.classification.risk}</dd>
-              </div>
-              <div>
-                <dt>Complexity</dt>
-                <dd>{detail.classification.complexity}</dd>
-              </div>
-              <div>
-                <dt>Affected Areas</dt>
-                <dd>{detail.classification.affectedAreas.join(", ")}</dd>
-              </div>
-              <div>
-                <dt>Signals</dt>
-                <dd>{detail.classification.detectedSignals.join(", ") || "none"}</dd>
+                <dt>Next Mode</dt>
+                <dd>{sentenceCase(detail.classification.suggestedMode)}</dd>
               </div>
               <div>
                 <dt>Provider</dt>
@@ -381,10 +644,61 @@ export default async function TicketDetailPage({
                 <dd>{detail.classification.suggestedModel}</dd>
               </div>
               <div>
-                <dt>Reason</dt>
-                <dd>{detail.classification.reason}</dd>
+                <dt>Touches</dt>
+                <dd>{detail.classification.affectedAreas.join(", ")}</dd>
               </div>
             </dl>
+            <details className="disclosure">
+              <summary>Show technical routing details</summary>
+              <div className="disclosure-body">
+                <dl className="stacked-meta">
+                  <div>
+                    <dt>Signals</dt>
+                    <dd>{detail.classification.detectedSignals.join(", ") || "none"}</dd>
+                  </div>
+                  <div>
+                    <dt>Reason</dt>
+                    <dd>{detail.classification.reason}</dd>
+                  </div>
+                </dl>
+              </div>
+            </details>
+          </article>
+
+          <article className="panel">
+            <h2>Ticket Resolution</h2>
+            {detail.ticket.status === "done" ? (
+              <div className="stack-actions">
+                <p className="subline">
+                  This ticket is closed as <strong>{formatResolutionType(detail.ticket.resolutionType)}</strong>.
+                </p>
+                {detail.ticket.resolutionNote ? <p className="subline">{detail.ticket.resolutionNote}</p> : null}
+                <form action={reopenTicketAction}>
+                  <input name="ticketId" type="hidden" value={detail.ticket.id} />
+                  <button type="submit">Reopen ticket</button>
+                </form>
+              </div>
+            ) : (
+              <form action={resolveTicketAction} className="stack-form">
+                <input name="ticketId" type="hidden" value={detail.ticket.id} />
+                <label className="field">
+                  <span>Close as</span>
+                  <select defaultValue="manual_pr" name="resolutionType">
+                    <option value="manual_pr">Done, PR handled manually</option>
+                    <option value="no_pr">Done without PR</option>
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Note</span>
+                  <textarea
+                    name="resolutionNote"
+                    placeholder="Optional note for the team, for example where the manual PR will happen."
+                    rows={3}
+                  />
+                </label>
+                <button type="submit">Mark ticket done</button>
+              </form>
+            )}
           </article>
 
           <article className="panel panel-wide">
@@ -401,10 +715,6 @@ export default async function TicketDetailPage({
             </div>
 
             <dl className="stacked-meta">
-              <div>
-                <dt>Prompt Sources</dt>
-                <dd>{currentPromptReview.sources.join(", ")}</dd>
-              </div>
               <div>
                 <dt>Updated</dt>
                 <dd>{new Date(currentPromptReview.updatedAt).toLocaleString()}</dd>
@@ -452,49 +762,52 @@ export default async function TicketDetailPage({
           </article>
 
           <article className="panel panel-wide">
-            <h2>Prompt Preview</h2>
-            <pre className="prompt-preview">{detail.prompt.prompt}</pre>
-          </article>
-
-          <article className="panel panel-wide">
-            <div className="panel-heading">
-              <div>
-                <h2>Prompt Diff</h2>
-                <p className="subline">
-                  Comparing current version v{currentPromptReview.version}
-                  {previousPromptReview
-                    ? ` with previous version v${previousPromptReview.version}.`
-                    : " with the first generated version."}
-                </p>
+            <h2>Prompt Details</h2>
+            <p className="subline">The live ticket view stays compact; open these only when you need the raw prompt or history.</p>
+            <details className="disclosure">
+              <summary>Prompt preview</summary>
+              <div className="disclosure-body">
+                <p className="subline">Sources: {currentPromptReview.sources.join(", ")}</p>
+                <pre className="prompt-preview">{detail.prompt.prompt}</pre>
               </div>
-            </div>
-
-            <div className="prompt-diff">
-              {promptDiff.map((line) => (
-                <div className={`prompt-diff-line prompt-diff-line-${line.kind}`} key={line.key}>
-                  <span className="prompt-diff-marker">{line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " "}</span>
-                  <code>{line.content || " "}</code>
+            </details>
+            <details className="disclosure">
+              <summary>
+                Prompt diff
+                {previousPromptReview
+                  ? ` · v${currentPromptReview.version} vs v${previousPromptReview.version}`
+                  : ` · first version`}
+              </summary>
+              <div className="disclosure-body">
+                <div className="prompt-diff">
+                  {promptDiff.map((line) => (
+                    <div className={`prompt-diff-line prompt-diff-line-${line.kind}`} key={line.key}>
+                      <span className="prompt-diff-marker">{line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " "}</span>
+                      <code>{line.content || " "}</code>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </article>
-
-          <article className="panel panel-wide">
-            <h2>Prompt History</h2>
-            <div className="list-grid prompt-history-grid">
-              {detail.promptReviews.map((promptReview) => (
-                <article className="prompt-history-card" key={promptReview.id}>
-                  <div className="panel-heading">
-                    <strong>Version v{promptReview.version}</strong>
-                    <span className={`status-pill status-pill-${reviewTone(promptReview.status)}`}>
-                      {formatReviewStatus(promptReview.status)}
-                    </span>
-                  </div>
-                  <p className="subline">Updated {new Date(promptReview.updatedAt).toLocaleString()}</p>
-                  <p className="prompt-history-comment">{promptReview.reviewerComment || "No reviewer comment stored."}</p>
-                </article>
-              ))}
-            </div>
+              </div>
+            </details>
+            <details className="disclosure">
+              <summary>Prompt history · {detail.promptReviews.length} version(s)</summary>
+              <div className="disclosure-body">
+                <div className="list-grid prompt-history-grid">
+                  {detail.promptReviews.map((promptReview) => (
+                    <article className="prompt-history-card" key={promptReview.id}>
+                      <div className="panel-heading">
+                        <strong>Version v{promptReview.version}</strong>
+                        <span className={`status-pill status-pill-${reviewTone(promptReview.status)}`}>
+                          {formatReviewStatus(promptReview.status)}
+                        </span>
+                      </div>
+                      <p className="subline">Updated {new Date(promptReview.updatedAt).toLocaleString()}</p>
+                      <p className="prompt-history-comment">{promptReview.reviewerComment || "No reviewer comment stored."}</p>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </details>
           </article>
 
           {usesPlanWorkflow ? (
@@ -632,52 +945,49 @@ export default async function TicketDetailPage({
 
               {currentPlanArtifact ? (
                 <article className="panel panel-wide">
-                  <div className="panel-heading">
-                    <div>
-                      <h2>Plan Diff</h2>
-                      <p className="subline">
-                        Comparing current version v{currentPlanArtifact.version}
-                        {previousPlanArtifact
-                          ? ` with previous version v${previousPlanArtifact.version}.`
-                          : " with the first generated version."}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="prompt-diff">
-                    {planDiff.map((line) => (
-                      <div className={`prompt-diff-line prompt-diff-line-${line.kind}`} key={line.key}>
-                        <span className="prompt-diff-marker">
-                          {line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " "}
-                        </span>
-                        <code>{line.content || " "}</code>
+                  <h2>Plan Details</h2>
+                  <details className="disclosure">
+                    <summary>
+                      Plan diff
+                      {previousPlanArtifact
+                        ? ` · v${currentPlanArtifact.version} vs v${previousPlanArtifact.version}`
+                        : ` · first version`}
+                    </summary>
+                    <div className="disclosure-body">
+                      <div className="prompt-diff">
+                        {planDiff.map((line) => (
+                          <div className={`prompt-diff-line prompt-diff-line-${line.kind}`} key={line.key}>
+                            <span className="prompt-diff-marker">
+                              {line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " "}
+                            </span>
+                            <code>{line.content || " "}</code>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  </details>
+
+                  <details className="disclosure">
+                    <summary>Plan history · {detail.planArtifacts.length} version(s)</summary>
+                    <div className="disclosure-body">
+                      <div className="list-grid prompt-history-grid">
+                        {detail.planArtifacts.map((planArtifact) => (
+                          <article className="prompt-history-card" key={planArtifact.id}>
+                            <div className="panel-heading">
+                              <strong>Version v{planArtifact.version}</strong>
+                              <span className={`status-pill status-pill-${reviewTone(planArtifact.status)}`}>
+                                {formatReviewStatus(planArtifact.status)}
+                              </span>
+                            </div>
+                            <p className="subline">Updated {new Date(planArtifact.updatedAt).toLocaleString()}</p>
+                            <p className="prompt-history-comment">{planArtifact.reviewerComment || "No reviewer comment stored."}</p>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+                  </details>
                 </article>
               ) : null}
-
-              <article className="panel panel-wide">
-                <h2>Plan History</h2>
-                {detail.planArtifacts.length === 0 ? (
-                  <p className="empty-state">No plan versions stored yet.</p>
-                ) : (
-                  <div className="list-grid prompt-history-grid">
-                    {detail.planArtifacts.map((planArtifact) => (
-                      <article className="prompt-history-card" key={planArtifact.id}>
-                        <div className="panel-heading">
-                          <strong>Version v{planArtifact.version}</strong>
-                          <span className={`status-pill status-pill-${reviewTone(planArtifact.status)}`}>
-                            {formatReviewStatus(planArtifact.status)}
-                          </span>
-                        </div>
-                        <p className="subline">Updated {new Date(planArtifact.updatedAt).toLocaleString()}</p>
-                        <p className="prompt-history-comment">{planArtifact.reviewerComment || "No reviewer comment stored."}</p>
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </article>
 
               <article className="panel panel-wide">
                 <div className="panel-heading">
@@ -921,7 +1231,12 @@ export default async function TicketDetailPage({
               </section>
             </div>
 
-            <p className="subline">Sources: {detail.prompt.sources.join(", ")}</p>
+            <details className="disclosure">
+              <summary>Show prompt sources</summary>
+              <div className="disclosure-body">
+                <p className="subline">{detail.prompt.sources.join(", ")}</p>
+              </div>
+            </details>
           </article>
 
           <article className="panel panel-wide">

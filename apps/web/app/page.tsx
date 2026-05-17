@@ -10,6 +10,25 @@ function formatExecutionStatus(status: string): string {
   return status === "output_ready" ? "output ready for review" : status;
 }
 
+function describeLaneFocus(lane: TicketSummary["workflowStage"]): string {
+  switch (lane) {
+    case "Inbox":
+      return "New tickets waiting for classification.";
+    case "Classified":
+      return "Routed and ready for prompt or plan review.";
+    case "Ready":
+      return "Cleared to start the next execution.";
+    case "Running":
+      return "Currently being worked by a provider.";
+    case "Review":
+      return "Waiting for human approval or follow-up.";
+    case "Done":
+      return "Finished or shipped work.";
+    default:
+      return "";
+  }
+}
+
 export default async function Home() {
   const [status, ticketResponse, executionResponse, config, providerResponse] = await Promise.all([
     getStatus(),
@@ -19,6 +38,8 @@ export default async function Home() {
     getProviders()
   ]);
   const providerWarnings = providerResponse.providers.filter((provider) => provider.status !== "ready");
+  const executionsAwaitingReview = executionResponse.executions.filter((execution) => execution.reviewStatus === "pending").length;
+  const reviewOutputCount = executionResponse.executions.filter((execution) => execution.status === "output_ready").length;
 
   const ticketsByLane = Object.fromEntries(
     lanes.map((lane) => [lane, ticketResponse.tickets.filter((ticket) => ticket.workflowStage === lane)])
@@ -29,8 +50,8 @@ export default async function Home() {
       <aside className="sidebar">
         <div>
           <p className="eyebrow">OpenTop</p>
-          <h1>Open Ticket Orchestrator Platform</h1>
-          <p className="claim">The control plane for agentic software development.</p>
+          <h1>OpenTop</h1>
+          <p className="claim">Plan, run, review, and ship ticket work from one place.</p>
         </div>
 
         <nav aria-label="Primary">
@@ -41,7 +62,7 @@ export default async function Home() {
         </nav>
 
         <section className="status-card">
-          <p className="eyebrow">Repository</p>
+          <p className="eyebrow">Workspace</p>
           <strong>{status.project}</strong>
           <span>{status.repository}</span>
           <dl>
@@ -72,11 +93,11 @@ export default async function Home() {
       <section className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Primary Interface</p>
-            <h2>Execution Board</h2>
+            <p className="eyebrow">Board</p>
+            <h2>Work Queue</h2>
             <p className="subline">
-              {ticketResponse.tickets.length} tickets, {executionResponse.executions.length} executions, effective policy{" "}
-              <strong>{config.execution.defaultBranchPolicy.effective ?? "unknown"}</strong>
+              {ticketResponse.tickets.length} tickets across the workflow, {executionResponse.executions.length} stored
+              executions, branch policy <strong>{config.execution.defaultBranchPolicy.effective ?? "unknown"}</strong>
             </p>
           </div>
           <div className="topbar-meta">
@@ -92,9 +113,28 @@ export default async function Home() {
           </p>
         ) : null}
 
+        <section className="summary-strip" aria-label="Board summary">
+          <article className="summary-card">
+            <span className="summary-label">Ready To Run</span>
+            <strong className="summary-value">{ticketsByLane.Ready.length}</strong>
+            <p className="summary-copy">Tickets that can start immediately without further review gates.</p>
+          </article>
+          <article className="summary-card">
+            <span className="summary-label">Needs Review</span>
+            <strong className="summary-value">{executionsAwaitingReview + ticketsByLane.Review.length}</strong>
+            <p className="summary-copy">Human approvals, review output, and execution follow-ups waiting on the team.</p>
+          </article>
+          <article className="summary-card">
+            <span className="summary-label">Review Output</span>
+            <strong className="summary-value">{reviewOutputCount}</strong>
+            <p className="summary-copy">Runs that produced plans, notes, or patch proposals instead of local file edits.</p>
+          </article>
+        </section>
+
         <section className="overview-grid">
           <article className="panel">
             <h2>Create Ticket</h2>
+            <p className="subline">Start with a short title and one or two concrete sentences about the expected outcome.</p>
             <form action={createTicketAction} className="stack-form">
               <label className="field">
                 <span>Title</span>
@@ -114,6 +154,7 @@ export default async function Home() {
 
           <article className="panel">
             <h2>Recent Executions</h2>
+            <p className="subline">Use this as the quickest way back into review, failures, or follow-up work.</p>
             {executionResponse.executions.length === 0 ? (
               <p className="empty-state">No executions stored yet.</p>
             ) : (
@@ -141,7 +182,10 @@ export default async function Home() {
           {lanes.map((lane) => (
             <article className="lane" key={lane}>
               <header>
-                <h3>{lane}</h3>
+                <div>
+                  <h3>{lane}</h3>
+                  <p className="lane-copy">{describeLaneFocus(lane)}</p>
+                </div>
                 <span>{ticketsByLane[lane].length}</span>
               </header>
 
@@ -162,12 +206,14 @@ export default async function Home() {
                           <dd>{ticket.classification.taskType}</dd>
                         </div>
                         <div>
-                          <dt>Profile</dt>
-                          <dd>{ticket.executionPlan.profile.id}</dd>
+                          <dt>Next Mode</dt>
+                          <dd>{ticket.executionPlan.profile.mode.replaceAll("_", " ")}</dd>
                         </div>
                         <div>
-                          <dt>Model</dt>
-                          <dd>{ticket.classification.suggestedModelTier}</dd>
+                          <dt>Routing</dt>
+                          <dd>
+                            {ticket.executionPlan.providerId}/{ticket.executionPlan.modelId}
+                          </dd>
                         </div>
                       </dl>
                     </Link>

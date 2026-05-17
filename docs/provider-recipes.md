@@ -17,16 +17,17 @@ providers:
 models:
   cheap:
     provider: codex
-    model: gpt-5-codex
+    model: gpt-5.4-mini
   strong:
     provider: codex
-    model: gpt-5-codex
+    model: gpt-5.5
 ```
 
 Notes:
 
 - Run `codex login` outside OpenTop first.
-- Prefer `gpt-5-codex` over generic model IDs such as `gpt-5.3`.
+- For ChatGPT-backed Codex accounts, prefer `gpt-5.4-mini` for cheaper runs and `gpt-5.5` for stronger runs.
+- Avoid `gpt-5-codex` here; in live testing Codex CLI rejected it for a ChatGPT account.
 - `opentop providers doctor` will warn when routed model IDs are unlikely to work with the local CLI.
 
 ## OpenAI API

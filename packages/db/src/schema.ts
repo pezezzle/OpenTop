@@ -8,6 +8,9 @@ export const ticketsTable = sqliteTable("tickets", {
   description: text("description").notNull(),
   labels: text("labels").notNull(),
   status: text("status").notNull(),
+  resolutionType: text("resolution_type"),
+  resolutionNote: text("resolution_note"),
+  resolvedAt: text("resolved_at"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull()
 });
