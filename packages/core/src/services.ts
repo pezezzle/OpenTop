@@ -6,6 +6,7 @@ import type { OpenTopConfig } from "./config.js";
 import { createExecutionPlan } from "./execution.js";
 import { parseStructuredPlan, isStructuredPlanUsable } from "./plan-output.js";
 import { buildAgentPrompt } from "./prompt-builder.js";
+import { resolveTicketIntelligence } from "./ticket-intelligence.js";
 import { buildWorkItemExecutionPrompt, buildWorkerPlanIntegrationSummary, createWorkItemExecutionPlan } from "./work-item-execution.js";
 import { buildWorkerPlanDraft } from "./worker-plan.js";
 import type {
@@ -37,6 +38,9 @@ import type {
   OpenTopProjectContext,
   PlanArtifact,
   PromptReview,
+  TicketIntelligenceService,
+  TicketIntelligenceSummary,
+  RefinedTicketBrief,
   RepositoryState,
   Ticket,
   TicketCreateInput
@@ -45,11 +49,15 @@ import type {
 interface PromptBuildOptions {
   planArtifactRepository?: PlanArtifactRepository;
   forcePlanningPhase?: boolean;
+  intelligenceService?: TicketIntelligenceService;
+  repositoryPath?: string;
 }
 
 interface ExecutionContext {
   ticket: Ticket;
   classification: Classification;
+  intelligenceSummary?: TicketIntelligenceSummary;
+  refinedBrief?: RefinedTicketBrief;
   baseExecutionPlan: ExecutionPlan;
   executionPlan: ExecutionPlan;
   executionPhase: "planning" | "implementation";
@@ -79,16 +87,28 @@ export async function listTickets(repository: TicketRepository): Promise<Ticket[
 export async function classifyStoredTicket(
   repository: TicketRepository,
   config: OpenTopConfig,
-  ticketId: string
-): Promise<{ ticket: Ticket; classification: Classification; executionPlan: ExecutionPlan }> {
+  ticketId: string,
+  options: Pick<PromptBuildOptions, "intelligenceService" | "repositoryPath"> = {}
+): Promise<{
+  ticket: Ticket;
+  classification: Classification;
+  executionPlan: ExecutionPlan;
+  intelligenceSummary?: TicketIntelligenceSummary;
+}> {
   const ticket = await getRequiredTicket(repository, ticketId);
-  const classification = classifyTicket(ticket, config);
+  const { classification, intelligenceSummary } = await resolveTicketIntelligence({
+    ticket,
+    config,
+    repositoryPath: options.repositoryPath ?? process.cwd(),
+    intelligenceService: options.intelligenceService
+  });
   const executionPlan = createExecutionPlan({ ...ticket, classification }, config);
 
   return {
     ticket: { ...ticket, classification },
     classification,
-    executionPlan
+    executionPlan,
+    intelligenceSummary
   };
 }
 
@@ -107,7 +127,9 @@ export async function buildPromptForStoredTicket(
     projectContext,
     executionPlan: context.executionPlan,
     approvedPlanArtifact: context.approvedPlanArtifact,
-    executionPhase: context.executionPhase
+    executionPhase: context.executionPhase,
+    refinedBrief: context.refinedBrief,
+    intelligenceSummary: context.intelligenceSummary
   });
 }
 
@@ -145,6 +167,7 @@ export async function preparePromptReviewForStoredTicket(
     sources: builtPrompt.sources,
     contextSummary: builtPrompt.contextSummary,
     classificationSnapshot: builtPrompt.executionPlan.classification,
+    intelligenceSummary: builtPrompt.intelligenceSummary,
     executionPlanSnapshot: builtPrompt.executionPlan
   });
 
@@ -158,27 +181,24 @@ export async function preparePromptReviewForStoredTicket(
 export async function approvePromptReviewForStoredTicket(
   ticketRepository: TicketRepository,
   promptReviewRepository: PromptReviewRepository,
-  config: OpenTopConfig,
-  projectContext: OpenTopProjectContext,
+  _config: OpenTopConfig,
+  _projectContext: OpenTopProjectContext,
   ticketId: string,
   promptReviewId: string,
   reviewerComment?: string,
-  options: PromptBuildOptions = {}
+  _options: PromptBuildOptions = {}
 ): Promise<PromptReview> {
-  const { promptReview } = await preparePromptReviewForStoredTicket(
-    ticketRepository,
-    promptReviewRepository,
-    config,
-    projectContext,
-    ticketId,
-    options
-  );
+  await getRequiredTicket(ticketRepository, ticketId);
+  const existingReviews = await promptReviewRepository.listByTicketId(ticketId);
+  const promptReview = existingReviews[0];
+
+  if (!promptReview) {
+    throw new Error("No prompt review exists for this ticket yet.");
+  }
 
   if (promptReview.id !== promptReviewId) {
     throw new Error("Only the latest prompt version can be approved.");
   }
-
-  const existingReviews = await promptReviewRepository.listByTicketId(ticketId);
 
   for (const review of existingReviews) {
     if (review.id !== promptReviewId && review.status === "approved") {
@@ -195,21 +215,20 @@ export async function approvePromptReviewForStoredTicket(
 export async function rejectPromptReviewForStoredTicket(
   ticketRepository: TicketRepository,
   promptReviewRepository: PromptReviewRepository,
-  config: OpenTopConfig,
-  projectContext: OpenTopProjectContext,
+  _config: OpenTopConfig,
+  _projectContext: OpenTopProjectContext,
   ticketId: string,
   promptReviewId: string,
   reviewerComment?: string,
-  options: PromptBuildOptions = {}
+  _options: PromptBuildOptions = {}
 ): Promise<PromptReview> {
-  const { promptReview } = await preparePromptReviewForStoredTicket(
-    ticketRepository,
-    promptReviewRepository,
-    config,
-    projectContext,
-    ticketId,
-    options
-  );
+  await getRequiredTicket(ticketRepository, ticketId);
+  const existingReviews = await promptReviewRepository.listByTicketId(ticketId);
+  const promptReview = existingReviews[0];
+
+  if (!promptReview) {
+    throw new Error("No prompt review exists for this ticket yet.");
+  }
 
   if (promptReview.id !== promptReviewId) {
     throw new Error("Only the latest prompt version can be rejected.");
@@ -248,6 +267,7 @@ export async function regeneratePromptReviewForStoredTicket(
     sources: builtPrompt.sources,
     contextSummary: builtPrompt.contextSummary,
     classificationSnapshot: builtPrompt.executionPlan.classification,
+    intelligenceSummary: builtPrompt.intelligenceSummary,
     executionPlanSnapshot: builtPrompt.executionPlan,
     reviewerComment
   });
@@ -744,7 +764,8 @@ export async function regeneratePlanArtifactForStoredTicket(
   projectContext: OpenTopProjectContext,
   ticketId: string,
   repositoryState: RepositoryState,
-  reviewerComment?: string
+  reviewerComment?: string,
+  options: Pick<PromptBuildOptions, "intelligenceService"> = {}
 ): Promise<ExecutionRunResult> {
   return runPlanningExecutionForStoredTicket(
     ticketRepository,
@@ -757,17 +778,24 @@ export async function regeneratePlanArtifactForStoredTicket(
     projectContext,
     ticketId,
     repositoryState,
-    reviewerComment
+    reviewerComment,
+    options
   );
 }
 
 export async function planExecutionForStoredTicket(
   repository: TicketRepository,
   config: OpenTopConfig,
-  ticketId: string
+  ticketId: string,
+  options: Pick<PromptBuildOptions, "intelligenceService" | "repositoryPath"> = {}
 ): Promise<ExecutionPlan> {
   const ticket = await getRequiredTicket(repository, ticketId);
-  const classification = classifyTicket(ticket, config);
+  const { classification } = await resolveTicketIntelligence({
+    ticket,
+    config,
+    repositoryPath: options.repositoryPath ?? process.cwd(),
+    intelligenceService: options.intelligenceService
+  });
   return createExecutionPlan({ ...ticket, classification }, config);
 }
 
@@ -783,9 +811,13 @@ export async function startExecutionForStoredTicket(
   projectContext: OpenTopProjectContext,
   ticketId: string,
   repositoryState: RepositoryState,
-  branchPolicyOverride?: ExecutionBranchPolicy
+  branchPolicyOverride?: ExecutionBranchPolicy,
+  options: Pick<PromptBuildOptions, "intelligenceService"> = {}
 ): Promise<ExecutionRunResult> {
-  const context = await resolveExecutionContext(ticketRepository, planArtifactRepository, config, ticketId);
+  const context = await resolveExecutionContext(ticketRepository, planArtifactRepository, config, ticketId, {
+    intelligenceService: options.intelligenceService,
+    repositoryPath: projectContext.rootDirectory
+  });
   const latestExecution = await getLatestExecutionForTicket(executionRepository, ticketId);
   const branchResolution = resolveExecutionBranch(context.executionPlan, config, repositoryState, branchPolicyOverride);
   const executionPlan = {
@@ -831,7 +863,11 @@ export async function startExecutionForStoredTicket(
     config,
     projectContext,
     ticketId,
-    { planArtifactRepository }
+    {
+      planArtifactRepository,
+      intelligenceService: options.intelligenceService,
+      repositoryPath: projectContext.rootDirectory
+    }
   );
 
   if (branchResolution.decision === "blocked") {
@@ -905,7 +941,11 @@ export async function startExecutionForStoredTicket(
       config,
       projectContext,
       ticketId,
-      repositoryState
+      repositoryState,
+      undefined,
+      {
+        intelligenceService: options.intelligenceService
+      }
     );
   }
 
@@ -1253,10 +1293,13 @@ async function runPlanningExecutionForStoredTicket(
   projectContext: OpenTopProjectContext,
   ticketId: string,
   repositoryState: RepositoryState,
-  reviewerComment?: string
+  reviewerComment?: string,
+  options: Pick<PromptBuildOptions, "intelligenceService"> = {}
 ): Promise<ExecutionRunResult> {
   const context = await resolveExecutionContext(ticketRepository, planArtifactRepository, config, ticketId, {
-    forcePlanningPhase: true
+    forcePlanningPhase: true,
+    intelligenceService: options.intelligenceService,
+    repositoryPath: projectContext.rootDirectory
   });
   const { promptReview, builtPrompt } = await preparePromptReviewForStoredTicket(
     ticketRepository,
@@ -1266,7 +1309,9 @@ async function runPlanningExecutionForStoredTicket(
     ticketId,
     {
       planArtifactRepository,
-      forcePlanningPhase: true
+      forcePlanningPhase: true,
+      intelligenceService: options.intelligenceService,
+      repositoryPath: projectContext.rootDirectory
     }
   );
   const branchResolution = resolveExecutionBranch(context.executionPlan, config, repositoryState);
@@ -1486,7 +1531,12 @@ async function resolveExecutionContext(
   options: PromptBuildOptions = {}
 ): Promise<ExecutionContext> {
   const ticket = await getRequiredTicket(ticketRepository, ticketId);
-  const classification = classifyTicket(ticket, config);
+  const { classification, intelligenceSummary } = await resolveTicketIntelligence({
+    ticket,
+    config,
+    repositoryPath: options.repositoryPath ?? process.cwd(),
+    intelligenceService: options.intelligenceService
+  });
   const baseExecutionPlan = createExecutionPlan({ ...ticket, classification }, config);
   const planArtifacts = planArtifactRepository ? await planArtifactRepository.listByTicketId(ticketId) : [];
   const latestPlanArtifact = planArtifacts[0];
@@ -1507,6 +1557,8 @@ async function resolveExecutionContext(
   return {
     ticket,
     classification,
+    intelligenceSummary,
+    refinedBrief: intelligenceSummary?.refinedBrief,
     baseExecutionPlan,
     executionPlan,
     executionPhase: planningPhase ? "planning" : "implementation",
@@ -1521,6 +1573,7 @@ function promptReviewMatchesBuiltPrompt(promptReview: PromptReview, builtPrompt:
     JSON.stringify(promptReview.sources) === JSON.stringify(builtPrompt.sources) &&
     JSON.stringify(promptReview.contextSummary) === JSON.stringify(builtPrompt.contextSummary) &&
     JSON.stringify(promptReview.classificationSnapshot) === JSON.stringify(builtPrompt.executionPlan.classification) &&
+    JSON.stringify(promptReview.intelligenceSummary) === JSON.stringify(builtPrompt.intelligenceSummary) &&
     JSON.stringify(promptReview.executionPlanSnapshot) === JSON.stringify(builtPrompt.executionPlan)
   );
 }

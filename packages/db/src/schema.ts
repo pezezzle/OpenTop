@@ -67,6 +67,7 @@ export const promptReviewsTable = sqliteTable("prompt_reviews", {
   sourcesJson: text("sources_json").notNull(),
   contextSummaryJson: text("context_summary_json").notNull(),
   classificationJson: text("classification_json").notNull(),
+  intelligenceJson: text("intelligence_json"),
   executionPlanJson: text("execution_plan_json").notNull(),
   reviewerComment: text("reviewer_comment"),
   createdAt: text("created_at").notNull(),

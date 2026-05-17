@@ -175,6 +175,7 @@ export interface PromptReview {
   sources: string[];
   contextSummary: PromptContextSummaryResponse;
   classificationSnapshot: TicketSummary["classification"];
+  intelligenceSummary?: TicketDetailResponse["prompt"]["intelligenceSummary"];
   executionPlanSnapshot: ExecutionPlanDetailResponse;
   reviewerComment?: string;
   createdAt: string;
@@ -267,6 +268,20 @@ export interface TicketDetailResponse {
     prompt: string;
     sources: string[];
     contextSummary: PromptContextSummaryResponse;
+    intelligenceSummary?: {
+      source: "deterministic" | "ai_assisted";
+      confidence?: "low" | "medium" | "high";
+      reasoning?: string;
+      missingInformation: string[];
+      refinedBrief?: {
+        summary: string;
+        objective: string;
+        scope: string[];
+        acceptanceCriteria: string[];
+        constraints: string[];
+        openQuestions: string[];
+      };
+    };
   };
   promptReview: PromptReview;
   promptReviews: PromptReview[];

@@ -113,6 +113,58 @@ export interface Classification {
   reason: string;
 }
 
+export type IntelligenceConfidence = "low" | "medium" | "high";
+
+export interface RefinedTicketBrief {
+  summary: string;
+  objective: string;
+  scope: string[];
+  acceptanceCriteria: string[];
+  constraints: string[];
+  openQuestions: string[];
+}
+
+export interface TicketIntelligenceSummary {
+  source: "deterministic" | "ai_assisted";
+  providerId?: string;
+  model?: string;
+  confidence?: IntelligenceConfidence;
+  reasoning?: string;
+  missingInformation: string[];
+  refinedBrief?: RefinedTicketBrief;
+}
+
+export interface TicketIntelligenceResult {
+  classification: Partial<
+    Pick<
+      Classification,
+      | "taskType"
+      | "risk"
+      | "complexity"
+      | "affectedAreas"
+      | "detectedSignals"
+      | "suggestedProfile"
+      | "suggestedModelTier"
+      | "suggestedMode"
+      | "approvalRequired"
+    >
+  > & { reason?: string };
+  refinedBrief?: RefinedTicketBrief;
+  confidence?: IntelligenceConfidence;
+  missingInformation?: string[];
+}
+
+export interface TicketIntelligenceRequest {
+  ticket: Ticket;
+  deterministicClassification: Classification;
+  config: import("./config.js").OpenTopConfig;
+  repositoryPath: string;
+}
+
+export interface TicketIntelligenceService {
+  analyze(request: TicketIntelligenceRequest): Promise<TicketIntelligenceResult | null>;
+}
+
 export interface AgentProfile {
   id: string;
   description?: string;
@@ -269,6 +321,7 @@ export interface PromptReview {
   sources: string[];
   contextSummary: PromptContextSummary;
   classificationSnapshot: Classification;
+  intelligenceSummary?: TicketIntelligenceSummary;
   executionPlanSnapshot: ExecutionPlan;
   reviewerComment?: string;
   createdAt: string;
@@ -337,6 +390,7 @@ export interface PromptReviewCreateInput {
   sources: string[];
   contextSummary: PromptContextSummary;
   classificationSnapshot: Classification;
+  intelligenceSummary?: TicketIntelligenceSummary;
   executionPlanSnapshot: ExecutionPlan;
   reviewerComment?: string;
 }
@@ -347,6 +401,7 @@ export interface PromptReviewUpdateInput {
   sources?: string[];
   contextSummary?: PromptContextSummary;
   classificationSnapshot?: Classification;
+  intelligenceSummary?: TicketIntelligenceSummary;
   executionPlanSnapshot?: ExecutionPlan;
   reviewerComment?: string;
 }
@@ -600,6 +655,8 @@ export interface PromptBuildInput {
   executionPlan?: ExecutionPlan;
   approvedPlanArtifact?: PlanArtifact;
   executionPhase?: "planning" | "implementation";
+  refinedBrief?: RefinedTicketBrief;
+  intelligenceSummary?: TicketIntelligenceSummary;
 }
 
 export interface BuiltPrompt {
@@ -607,6 +664,7 @@ export interface BuiltPrompt {
   executionPlan: ExecutionPlan;
   sources: string[];
   contextSummary: PromptContextSummary;
+  intelligenceSummary?: TicketIntelligenceSummary;
 }
 
 export type ExecutionRunResult =

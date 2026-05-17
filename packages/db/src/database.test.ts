@@ -11,15 +11,15 @@ test("createOpenTopSqliteContext initializes and persists the latest schema vers
 
   try {
     const first = await createOpenTopSqliteContext({ filePath });
-    assert.equal(first.schemaVersion, 5);
-    assert.equal(getSchemaVersion(first.sqlite), 5);
+    assert.equal(first.schemaVersion, 6);
+    assert.equal(getSchemaVersion(first.sqlite), 6);
 
     await persistDatabase(first.sqlite, first.filePath);
     first.sqlite.close();
 
     const reopened = await createOpenTopSqliteContext({ filePath });
-    assert.equal(reopened.schemaVersion, 5);
-    assert.equal(getSchemaVersion(reopened.sqlite), 5);
+    assert.equal(reopened.schemaVersion, 6);
+    assert.equal(getSchemaVersion(reopened.sqlite), 6);
     reopened.sqlite.close();
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -64,8 +64,11 @@ test("createOpenTopSqliteContext upgrades older execution schemas in place", asy
     const ticketColumns = upgraded.sqlite
       .exec("PRAGMA table_info(tickets);")[0]
       ?.values?.map((row) => String(row[1])) ?? [];
+    const promptReviewColumns = upgraded.sqlite
+      .exec("PRAGMA table_info(prompt_reviews);")[0]
+      ?.values?.map((row) => String(row[1])) ?? [];
 
-    assert.equal(upgraded.schemaVersion, 5);
+    assert.equal(upgraded.schemaVersion, 6);
     assert.ok(columns.includes("artifact_kind"));
     assert.ok(columns.includes("review_status"));
     assert.ok(columns.includes("pull_request_json"));
@@ -73,6 +76,7 @@ test("createOpenTopSqliteContext upgrades older execution schemas in place", asy
     assert.ok(ticketColumns.includes("resolution_note"));
     assert.ok(ticketColumns.includes("resolved_at"));
     assert.ok(ticketColumns.includes("reopened_at"));
+    assert.ok(promptReviewColumns.includes("intelligence_json"));
     upgraded.sqlite.close();
   } finally {
     await rm(directory, { recursive: true, force: true });

@@ -7,6 +7,7 @@ import {
   approvePromptReviewForStoredTicket,
   buildPromptForStoredTicket,
   classifyStoredTicket,
+  createAiTicketIntelligenceService,
   createExecutionPlan,
   createDraftPullRequestForExecution,
   createTicket,
@@ -16,6 +17,7 @@ import {
   getConfigValue,
   getContextSettingsScopes,
   getExecution,
+  getModel,
   listCheckRunsForStoredExecution,
   listExecutionsForStoredWorkerPlan,
   inspectConfiguredProviders,
@@ -45,6 +47,7 @@ import {
   startExecutionForStoredTicket,
   type ExecutionBranchPolicy,
   type OpenTopConfigScope,
+  type TicketIntelligenceService,
   type Ticket
 } from "@opentop/core";
 import {
@@ -430,32 +433,80 @@ export function buildServer() {
 
   server.get("/tickets", async (request) => {
     const targetDirectory = resolveTargetDirectory(request.query);
-    const [config, ticketRepository, executionRepository] = await Promise.all([
+    const [config, ticketRepository, promptReviewRepository, executionRepository] = await Promise.all([
       loadOpenTopConfig(undefined, targetDirectory),
       createSqliteTicketRepository({ startDirectory: targetDirectory }),
+      createSqlitePromptReviewRepository({ startDirectory: targetDirectory }),
       createSqliteExecutionRepository({ startDirectory: targetDirectory })
     ]);
     const [tickets, executions] = await Promise.all([listTickets(ticketRepository), listExecutions(executionRepository)]);
+    const promptReviewsByTicket = new Map(
+      (
+        await Promise.all(
+          tickets.map(async (ticket) => [ticket.id, (await listPromptReviewsForStoredTicket(promptReviewRepository, ticket.id))[0] ?? null] as const)
+        )
+      ).filter((entry) => entry[1] !== null)
+    );
 
     return {
-      tickets: tickets.map((ticket) => enrichTicketSummary(ticket, config, executions))
+      tickets: tickets.map((ticket) =>
+        enrichTicketSummary(
+          promptReviewsByTicket.get(ticket.id)
+            ? { ...ticket, classification: promptReviewsByTicket.get(ticket.id)!.classificationSnapshot }
+            : ticket,
+          config,
+          executions
+        )
+      )
     };
   });
 
   server.post("/tickets", async (request) => {
     const targetDirectory = resolveTargetDirectory(request.query);
     const body = createTicketBodySchema.parse(request.body);
-    const repository = await createSqliteTicketRepository({ startDirectory: targetDirectory });
-    const ticket = await createTicket(repository, {
+    const [config, projectContext] = await Promise.all([
+      loadOpenTopConfig(undefined, targetDirectory),
+      loadOpenTopProjectContext(targetDirectory)
+    ]);
+    const ticketRepository = await createSqliteTicketRepository({ startDirectory: targetDirectory });
+    const ticket = await createTicket(ticketRepository, {
       title: body.title,
       description: body.description,
       labels: body.labels,
       source: body.source,
       externalId: body.externalId
     });
+    let promptResult: Awaited<ReturnType<typeof preparePromptReviewForStoredTicket>> | null = null;
+    let promptPreparationWarning: string | undefined;
+
+    try {
+      const intelligenceService = await createTicketIntelligenceServiceForDirectory(config, targetDirectory);
+      const [freshTicketRepository, promptReviewRepository, planArtifactRepository] = await Promise.all([
+        createSqliteTicketRepository({ startDirectory: targetDirectory }),
+        createSqlitePromptReviewRepository({ startDirectory: targetDirectory }),
+        createSqlitePlanArtifactRepository({ startDirectory: targetDirectory })
+      ]);
+      promptResult = await preparePromptReviewForStoredTicket(
+        freshTicketRepository,
+        promptReviewRepository,
+        config,
+        projectContext,
+        ticket.id,
+        {
+          planArtifactRepository,
+          intelligenceService,
+          repositoryPath: targetDirectory
+        }
+      );
+    } catch (error) {
+      request.log.warn({ err: error, ticketId: ticket.id }, "Prompt preparation failed after ticket creation.");
+      promptPreparationWarning = "The ticket was created, but its prompt could not be prepared yet.";
+    }
 
     return {
-      ticket
+      ticket,
+      promptReview: promptResult?.promptReview ?? null,
+      warning: promptPreparationWarning
     };
   });
 
@@ -481,30 +532,46 @@ export function buildServer() {
       createSqliteWorkItemRepository({ startDirectory: targetDirectory }),
       createSqliteExecutionRepository({ startDirectory: targetDirectory })
     ]);
-    const [classifiedTicket, promptReviewResult, promptReviews, planArtifacts, workerPlans, workItems, executions] = await Promise.all([
-      classifyStoredTicket(ticketRepository, config, ticketId),
-      preparePromptReviewForStoredTicket(ticketRepository, promptReviewRepository, config, projectContext, ticketId, {
-        planArtifactRepository
-      }),
+    const intelligenceService = await createTicketIntelligenceServiceForDirectory(config, targetDirectory);
+    const [ticketRecord, promptReviews, planArtifacts, workerPlans, workItems, executions] = await Promise.all([
+      ticketRepository.findById(ticketId),
       listPromptReviewsForStoredTicket(promptReviewRepository, ticketId),
       listPlanArtifactsForStoredTicket(planArtifactRepository, ticketId),
       listWorkerPlansForStoredTicket(workerPlanRepository, ticketId),
       listWorkItemsForStoredTicket(workItemRepository, ticketId),
       executionRepository.listByTicketId(ticketId)
     ]);
-    const ticket = enrichTicketSummary(classifiedTicket.ticket, config, executions);
+
+    if (!ticketRecord) {
+      throw new Error(`Ticket "${ticketId}" was not found in the local OpenTop store.`);
+    }
+
+    const promptReviewResult =
+      promptReviews[0] ??
+      (
+        await preparePromptReviewForStoredTicket(ticketRepository, promptReviewRepository, config, projectContext, ticketId, {
+          planArtifactRepository,
+          intelligenceService,
+          repositoryPath: targetDirectory
+        })
+      ).promptReview;
+    const promptReviewHistory = promptReviews[0] ? promptReviews : [promptReviewResult];
+    const classification = promptReviewResult.classificationSnapshot;
+    const executionPlan = promptReviewResult.executionPlanSnapshot;
+    const ticket = enrichTicketSummary({ ...ticketRecord, classification }, config, executions);
 
     return {
       ticket,
-      classification: classifiedTicket.classification,
-      executionPlan: classifiedTicket.executionPlan,
+      classification,
+      executionPlan,
       prompt: {
-        prompt: promptReviewResult.builtPrompt.prompt,
-        sources: promptReviewResult.builtPrompt.sources,
-        contextSummary: promptReviewResult.builtPrompt.contextSummary
+        prompt: promptReviewResult.promptSnapshot,
+        sources: promptReviewResult.sources,
+        contextSummary: promptReviewResult.contextSummary,
+        intelligenceSummary: promptReviewResult.intelligenceSummary
       },
-      promptReview: promptReviewResult.promptReview,
-      promptReviews,
+      promptReview: promptReviewResult,
+      promptReviews: promptReviewHistory,
       planArtifact: planArtifacts[0] ?? null,
       planArtifacts,
       workerPlan: workerPlans[0] ?? null,
@@ -545,12 +612,31 @@ export function buildServer() {
   server.post("/tickets/:ticketId/classify", async (request) => {
     const targetDirectory = resolveTargetDirectory(request.query);
     const ticketId = z.object({ ticketId: z.string() }).parse(request.params).ticketId;
-    const [config, ticketRepository] = await Promise.all([
+    const [config, ticketRepository, promptReviewRepository] = await Promise.all([
       loadOpenTopConfig(undefined, targetDirectory),
-      createSqliteTicketRepository({ startDirectory: targetDirectory })
+      createSqliteTicketRepository({ startDirectory: targetDirectory }),
+      createSqlitePromptReviewRepository({ startDirectory: targetDirectory })
+    ]);
+    const [ticketRecord, promptReviews] = await Promise.all([
+      ticketRepository.findById(ticketId),
+      listPromptReviewsForStoredTicket(promptReviewRepository, ticketId)
     ]);
 
-    return classifyStoredTicket(ticketRepository, config, ticketId);
+    if (ticketRecord && promptReviews[0]) {
+      return {
+        ticket: { ...ticketRecord, classification: promptReviews[0].classificationSnapshot },
+        classification: promptReviews[0].classificationSnapshot,
+        executionPlan: promptReviews[0].executionPlanSnapshot,
+        intelligenceSummary: promptReviews[0].intelligenceSummary
+      };
+    }
+
+    const intelligenceService = await createTicketIntelligenceServiceForDirectory(config, targetDirectory);
+
+    return classifyStoredTicket(ticketRepository, config, ticketId, {
+      intelligenceService,
+      repositoryPath: targetDirectory
+    });
   });
 
   server.get("/tickets/:ticketId/prompt", async (request) => {
@@ -563,6 +649,19 @@ export function buildServer() {
       createSqlitePromptReviewRepository({ startDirectory: targetDirectory }),
       createSqlitePlanArtifactRepository({ startDirectory: targetDirectory })
     ]);
+    const intelligenceService = await createTicketIntelligenceServiceForDirectory(config, targetDirectory);
+    const existingReviews = await listPromptReviewsForStoredTicket(promptReviewRepository, ticketId);
+    const latestReview = existingReviews[0];
+
+    if (latestReview) {
+      return {
+        prompt: latestReview.promptSnapshot,
+        sources: latestReview.sources,
+        contextSummary: latestReview.contextSummary,
+        intelligenceSummary: latestReview.intelligenceSummary,
+        promptReview: latestReview
+      };
+    }
 
     const promptReview = await preparePromptReviewForStoredTicket(
       ticketRepository,
@@ -570,13 +669,18 @@ export function buildServer() {
       config,
       projectContext,
       ticketId,
-      { planArtifactRepository }
+      {
+        planArtifactRepository,
+        intelligenceService,
+        repositoryPath: targetDirectory
+      }
     );
 
     return {
-      prompt: promptReview.builtPrompt.prompt,
-      sources: promptReview.builtPrompt.sources,
-      contextSummary: promptReview.builtPrompt.contextSummary,
+      prompt: promptReview.promptReview.promptSnapshot,
+      sources: promptReview.promptReview.sources,
+      contextSummary: promptReview.promptReview.contextSummary,
+      intelligenceSummary: promptReview.promptReview.intelligenceSummary,
       promptReview: promptReview.promptReview
     };
   });
@@ -592,7 +696,7 @@ export function buildServer() {
       createSqlitePromptReviewRepository({ startDirectory: targetDirectory }),
       createSqlitePlanArtifactRepository({ startDirectory: targetDirectory })
     ]);
-
+    const intelligenceService = await createTicketIntelligenceServiceForDirectory(config, targetDirectory);
     return {
       promptReview: await regeneratePromptReviewForStoredTicket(
         ticketRepository,
@@ -601,7 +705,11 @@ export function buildServer() {
         projectContext,
         ticketId,
         body.reviewerComment,
-        { planArtifactRepository }
+        {
+          planArtifactRepository,
+          intelligenceService,
+          repositoryPath: targetDirectory
+        }
       )
     };
   });
@@ -617,7 +725,6 @@ export function buildServer() {
       createSqlitePromptReviewRepository({ startDirectory: targetDirectory }),
       createSqlitePlanArtifactRepository({ startDirectory: targetDirectory })
     ]);
-
     return {
       promptReview: await approvePromptReviewForStoredTicket(
         ticketRepository,
@@ -627,7 +734,9 @@ export function buildServer() {
         params.ticketId,
         params.promptReviewId,
         body.reviewerComment,
-        { planArtifactRepository }
+        {
+          planArtifactRepository
+        }
       )
     };
   });
@@ -643,7 +752,6 @@ export function buildServer() {
       createSqlitePromptReviewRepository({ startDirectory: targetDirectory }),
       createSqlitePlanArtifactRepository({ startDirectory: targetDirectory })
     ]);
-
     return {
       promptReview: await rejectPromptReviewForStoredTicket(
         ticketRepository,
@@ -653,7 +761,9 @@ export function buildServer() {
         params.ticketId,
         params.promptReviewId,
         body.reviewerComment,
-        { planArtifactRepository }
+        {
+          planArtifactRepository
+        }
       )
     };
   });
@@ -690,7 +800,11 @@ export function buildServer() {
       createSqliteExecutionRepository({ startDirectory: targetDirectory }),
       getRepositoryStatus(targetDirectory)
     ]);
-    const executionPlan = await planExecutionForStoredTicket(ticketRepository, config, ticketId);
+    const intelligenceService = await createTicketIntelligenceServiceForDirectory(config, targetDirectory);
+    const executionPlan = await planExecutionForStoredTicket(ticketRepository, config, ticketId, {
+      intelligenceService,
+      repositoryPath: targetDirectory
+    });
     const provider = await createProviderAdapter(executionPlan.providerId, getProvider(config, executionPlan.providerId), {
       repositoryPath: targetDirectory
     });
@@ -706,7 +820,10 @@ export function buildServer() {
       projectContext,
       ticketId,
       repositoryState,
-      body.reviewerComment
+      body.reviewerComment,
+      {
+        intelligenceService
+      }
     );
   });
 
@@ -879,7 +996,11 @@ export function buildServer() {
       createSqliteCheckRunRepository({ startDirectory: targetDirectory }),
       getRepositoryStatus(targetDirectory)
       ]);
-    const executionPlan = await planExecutionForStoredTicket(ticketRepository, config, ticketId);
+    const intelligenceService = await createTicketIntelligenceServiceForDirectory(config, targetDirectory);
+    const executionPlan = await planExecutionForStoredTicket(ticketRepository, config, ticketId, {
+      intelligenceService,
+      repositoryPath: targetDirectory
+    });
     let provider;
 
     try {
@@ -921,7 +1042,10 @@ export function buildServer() {
       projectContext,
       ticketId,
       repositoryState,
-      body.branchPolicy
+      body.branchPolicy,
+      {
+        intelligenceService
+      }
     );
 
     return result;
@@ -1216,4 +1340,31 @@ function sanitizeBranchSuffix(value: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 40);
+}
+
+async function createTicketIntelligenceServiceForDirectory(
+  config: Awaited<ReturnType<typeof loadOpenTopConfig>>,
+  targetDirectory: string
+): Promise<TicketIntelligenceService | undefined> {
+  const tier = config.models.cheap ? "cheap" : Object.keys(config.models)[0];
+
+  if (!tier) {
+    return undefined;
+  }
+
+  const model = getModel(config, tier);
+
+  try {
+    const provider = await createProviderAdapter(model.provider, getProvider(config, model.provider), {
+      repositoryPath: targetDirectory
+    });
+
+    return createAiTicketIntelligenceService({
+      providerId: model.provider,
+      model: model.model,
+      executionProvider: provider
+    });
+  } catch {
+    return undefined;
+  }
 }

@@ -8,8 +8,10 @@ The current working flow is:
 
 ```text
 create ticket
+-> immediately prepare first prompt-review version
 -> load config
 -> classify ticket
+-> refine brief when AI assistance is available
 -> create execution plan
 -> build controlled prompt
 -> review, approve, reject, or regenerate prompt
@@ -42,15 +44,22 @@ Tickets are stored in:
 .opentop/state/opentop.db
 ```
 
+Current implementation note:
+
+- ticket creation now also tries to prepare the first prompt-review version immediately
+- when a suitable provider/model is available, that initial prompt can already be AI-assisted
+- if prompt preparation fails, the ticket still gets created and OpenTop surfaces the prompt issue separately
+
 ## Step 2: Classify Ticket
 
-Classification uses `.opentop/opentop.yml` routing rules.
+Classification uses `.opentop/opentop.yml` routing rules plus an AI-assisted pass when available.
 
 Current implementation note:
 
-- this is still deterministic and heuristic today
-- task type, risk, complexity, affected areas, and routing are derived from labels, keywords, and configured routing rules
-- the implementation lives in `packages/core/src/classifier.ts`
+- OpenTop still keeps a deterministic routing baseline in `packages/core/src/classifier.ts`
+- when a usable provider/model is available, OpenTop now runs an AI-assisted classification pass before prompt review and execution
+- that AI pass can refine task type, risk, complexity, affected areas, profile choice, execution mode, and the human-facing reasoning
+- if the AI pass fails or returns unusable output, OpenTop falls back to the deterministic baseline
 
 It determines:
 
@@ -62,6 +71,15 @@ It determines:
 - suggested execution mode
 - approval requirement
 - reason
+
+When the AI-assisted path succeeds, OpenTop also produces a refined brief with:
+
+- summary
+- objective
+- scope
+- acceptance criteria
+- constraints
+- open questions
 
 ## Step 3: Build Execution Plan
 
@@ -98,7 +116,7 @@ It produces a controlled prompt with:
 
 It also produces a prompt-review snapshot that can be versioned and approved before any provider run begins.
 
-Today this prompt is still built directly from ticket content plus OpenTop rules and context. OpenTop does not yet run a separate AI-assisted prompt-refinement pass before prompt review.
+Today the refined brief is generated as part of the same AI-assisted ticket-understanding pass and then injected into the controlled prompt template before prompt review.
 
 ## Step 4.5: Prompt Review Gate
 
@@ -106,11 +124,14 @@ Prompt review is now a first-class gate in the execution flow.
 
 Current behavior:
 
-- generating a prompt for a stored ticket creates or refreshes a prompt-review version
+- ticket creation prepares the first prompt-review version immediately when possible
+- generating a prompt for a stored ticket creates a new prompt-review version only when no stored version exists yet
 - the latest version starts in `draft` unless it was already approved earlier and nothing changed
 - users can approve, reject, or regenerate the latest prompt version from the Web UI
+- approve and reject now operate on the latest stored prompt-review version instead of silently regenerating a different prompt during approval
 - approval-required tickets cannot start execution until the latest prompt version is `approved`
 - rejected prompt versions block execution until a new version is generated and approved
+- regenerate still creates a new prompt-review version and is the explicit way to ask OpenTop for a revised prompt
 
 ## Step 4.6: Plan Review Gate
 
@@ -253,4 +274,6 @@ Still missing:
 - log streaming
 - safe parallel execution across worker plans
 - deeper GitHub review/comment synchronization beyond PR state and ready-for-review transitions
-- AI-assisted classification and prompt refinement before controlled prompt assembly
+- feeding prompt-regeneration comments back into AI refinement as structured follow-up instructions
+- persistent per-ticket Codex conversation/session reuse for iterative runs
+- context compaction or delta-based follow-up prompts to keep iterative runs cheaper and smaller

@@ -1,12 +1,16 @@
 # AI-Assisted Classification And Prompt Refinement
 
-This document describes the intended next step after the current deterministic classification and prompt-building baseline.
+This document now describes two things:
+
+- the first implemented version of AI-assisted ticket understanding in OpenTop today
+- the next architecture steps needed to make that system cheaper, more stable, and more iterative
 
 The short version:
 
 - OpenTop should keep deterministic guardrails.
-- OpenTop should stop relying only on hard-coded keyword heuristics for task understanding.
-- OpenTop should add an AI-assisted classification and prompt-refinement layer before prompt review and execution.
+- OpenTop should not rely only on hard-coded keyword heuristics for task understanding.
+- OpenTop now has a first AI-assisted classification and prompt-refinement layer before prompt review and execution.
+- The next work is about persistence shape, follow-up refinement, and context efficiency.
 
 ## Why This Is Needed
 
@@ -28,6 +32,27 @@ But it is also limited:
 - prompt quality depends too heavily on the user writing a good ticket
 
 For the product direction OpenTop wants, deterministic-only classification is not enough.
+
+## Current Implemented Cut
+
+Today OpenTop already does the following on the create/classify/prompt/run path:
+
+- compute a deterministic baseline classification
+- call an AI-assisted intelligence service when a suitable provider/model is available
+- merge the AI result back through deterministic validation
+- produce a refined brief
+- inject that refined brief into the controlled prompt
+- store the resulting AI summary on the prompt-review record
+
+The stored summary currently includes:
+
+- source: deterministic or ai-assisted
+- confidence
+- reasoning
+- missing information
+- refined brief content
+
+This is enough for the first visible prompt-review version to be AI-assisted and reviewable.
 
 ## Product Goal
 
@@ -115,9 +140,17 @@ create ticket
 -> execute
 ```
 
-## New Data Artifacts
+## Data Artifacts
 
-OpenTop should store these as first-class artifacts.
+### What Exists Today
+
+The AI-assisted result is currently persisted on the prompt-review record itself.
+
+That gives OpenTop a working storage model now, but it couples ticket understanding too tightly to prompt-review versioning.
+
+### What We Still Want
+
+OpenTop should eventually store these as first-class artifacts.
 
 ### Classification Artifact
 
@@ -157,6 +190,8 @@ Suggested fields:
 
 These artifacts should be visible in Web before execution.
 
+Today they are visible indirectly through the prompt-review and ticket detail experience.
+
 ## Deterministic Override Rules
 
 AI assistance should not blindly win.
@@ -192,6 +227,14 @@ The first visible layer should show:
 
 Advanced reasoning stays behind disclosure panels.
 
+The first version of this UI is already partially in place through:
+
+- `Refined Brief`
+- `Classification source`
+- AI-assisted reasoning and confidence
+
+But it still needs more compact presentation and clearer explanation in the surrounding workflow.
+
 ## Provider Strategy
 
 OpenTop should not require the same model/provider for every pre-execution AI task.
@@ -217,6 +260,15 @@ If AI-assisted classification or refinement is unavailable:
 - surface that the ticket was handled with deterministic fallback only
 
 OpenTop should always remain operable without this feature.
+
+## Next Architecture Steps
+
+The next steps we have explicitly committed to are:
+
+1. persist AI understanding as a standalone artifact instead of only on prompt reviews
+2. let prompt-regeneration notes become structured refinement instructions for the next AI pass
+3. support better iterative follow-up runs instead of treating every improvement pass as a fully fresh stateless run
+4. add context-compaction or delta-based follow-up prompting so iterative runs stay smaller and cheaper
 
 ## Rollout Plan
 

@@ -10,8 +10,10 @@ import {
   buildAgentPrompt,
   buildPromptForStoredTicket,
   classifyStoredTicket,
+  createAiTicketIntelligenceService,
   createStarterConfigObject,
   getProvider,
+  getModel,
   getBranchPolicySettings,
   getConfigValue,
   createTicket,
@@ -36,6 +38,7 @@ import {
   type OpenTopConfigScope,
   type ExecutionBranchPolicy,
   type ProviderConnectionMethod,
+  type TicketIntelligenceService,
   type Ticket
 } from "@opentop/core";
 import {
@@ -562,10 +565,14 @@ program
   .action(async (ticketId: string | undefined, options: { title: string; description: string; labels: string }) => {
     const targetDirectory = getTargetRepositoryPath();
     const config = await loadOpenTopConfig(undefined, targetDirectory);
+    const intelligenceService = await createTicketIntelligenceServiceForDirectory(config, targetDirectory);
 
     if (ticketId) {
       const repository = await createSqliteTicketRepository({ startDirectory: targetDirectory });
-      const result = await classifyStoredTicket(repository, config, ticketId);
+      const result = await classifyStoredTicket(repository, config, ticketId, {
+        intelligenceService,
+        repositoryPath: targetDirectory
+      });
       console.log(JSON.stringify(result, null, 2));
       return;
     }
@@ -593,6 +600,7 @@ program
         loadOpenTopConfig(undefined, targetDirectory),
         loadOpenTopProjectContext(targetDirectory)
       ]);
+      const intelligenceService = await createTicketIntelligenceServiceForDirectory(config, targetDirectory);
 
       const builtPrompt = ticketId
         ? await buildPromptForStoredTicket(
@@ -601,7 +609,9 @@ program
             projectContext,
             ticketId,
             {
-              planArtifactRepository: await createSqlitePlanArtifactRepository({ startDirectory: targetDirectory })
+              planArtifactRepository: await createSqlitePlanArtifactRepository({ startDirectory: targetDirectory }),
+              intelligenceService,
+              repositoryPath: targetDirectory
             }
           )
         : buildAgentPrompt({
@@ -2077,7 +2087,11 @@ async function executeClassifyShellCommand(tokens: string[], targetDirectory: st
 
   const config = await loadOpenTopConfig(undefined, targetDirectory);
   const repository = await createSqliteTicketRepository({ startDirectory: targetDirectory });
-  const result = await classifyStoredTicket(repository, config, ticketId);
+  const intelligenceService = await createTicketIntelligenceServiceForDirectory(config, targetDirectory);
+  const result = await classifyStoredTicket(repository, config, ticketId, {
+    intelligenceService,
+    repositoryPath: targetDirectory
+  });
   console.log(JSON.stringify(result, null, 2));
 }
 
@@ -2093,8 +2107,11 @@ async function executePromptShellCommand(tokens: string[], targetDirectory: stri
     loadOpenTopProjectContext(targetDirectory),
     createSqliteTicketRepository({ startDirectory: targetDirectory })
   ]);
+  const intelligenceService = await createTicketIntelligenceServiceForDirectory(config, targetDirectory);
   const builtPrompt = await buildPromptForStoredTicket(repository, config, projectContext, ticketId, {
-    planArtifactRepository: await createSqlitePlanArtifactRepository({ startDirectory: targetDirectory })
+    planArtifactRepository: await createSqlitePlanArtifactRepository({ startDirectory: targetDirectory }),
+    intelligenceService,
+    repositoryPath: targetDirectory
   });
 
   if (hasFlag(tokens.slice(1), "--json")) {
@@ -2124,7 +2141,11 @@ async function executeRunShellCommand(tokens: string[], targetDirectory: string)
     createSqliteCheckRunRepository({ startDirectory: targetDirectory }),
     getRepositoryStatus(targetDirectory)
   ]);
-  const executionPlan = await planExecutionForStoredTicket(ticketRepository, config, ticketId);
+  const intelligenceService = await createTicketIntelligenceServiceForDirectory(config, targetDirectory);
+  const executionPlan = await planExecutionForStoredTicket(ticketRepository, config, ticketId, {
+    intelligenceService,
+    repositoryPath: targetDirectory
+  });
   const provider = await createProviderAdapter(
     executionPlan.providerId,
     getProvider(config, executionPlan.providerId),
@@ -2144,7 +2165,10 @@ async function executeRunShellCommand(tokens: string[], targetDirectory: string)
     projectContext,
     ticketId,
     repositoryState,
-    branchPolicy
+    branchPolicy,
+    {
+      intelligenceService
+    }
   );
 
   if (result.status === "blocked") {
@@ -2558,4 +2582,31 @@ function stripAnsi(value: string): string {
 function padAnsi(value: string, width: number): string {
   const plain = stripAnsi(value);
   return value + " ".repeat(Math.max(0, width - plain.length));
+}
+
+async function createTicketIntelligenceServiceForDirectory(
+  config: Awaited<ReturnType<typeof loadOpenTopConfig>>,
+  targetDirectory: string
+): Promise<TicketIntelligenceService | undefined> {
+  const tier = config.models.cheap ? "cheap" : Object.keys(config.models)[0];
+
+  if (!tier) {
+    return undefined;
+  }
+
+  const model = getModel(config, tier);
+
+  try {
+    const provider = await createProviderAdapter(model.provider, getProvider(config, model.provider), {
+      repositoryPath: targetDirectory
+    });
+
+    return createAiTicketIntelligenceService({
+      providerId: model.provider,
+      model: model.model,
+      executionProvider: provider
+    });
+  } catch {
+    return undefined;
+  }
 }

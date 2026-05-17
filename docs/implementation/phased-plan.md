@@ -501,7 +501,11 @@ The phased foundation is now in place. The most important follow-on work is:
 - deepen GitHub sync so board and ticket states reflect merge and closure signals more directly
 - expand hosted-provider execution beyond review output into safer local patch/application workflows
 - add runtime adapters for additional local-model and hosted providers
-- add an optional AI-assisted classifier pass on top of the deterministic baseline
+- harden the new AI-assisted classification and refined-brief path that now runs during ticket and prompt preparation
+- persist AI classification/refinement as a dedicated artifact instead of only storing it on prompt reviews
+- let prompt-regeneration notes become structured AI refinement instructions for the next prompt version
+- design iterative follow-up runs so stored execution context can be reused without building ever-growing prompt blobs
+- add context-compaction or delta-style follow-up prompting for cheaper, cleaner iterative runs
 - expand worker execution from sequential slices toward parallel orchestration where safe
 - continue Web UX compaction, consistency, and operational clarity
 - keep multi-user, cloud workers, and broader ticket-system imports as later platform work rather than immediate local-alpha requirements

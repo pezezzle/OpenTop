@@ -43,8 +43,25 @@ export function buildAgentPrompt(input: PromptBuildInput): BuiltPrompt {
     `Title: ${input.ticket.title}`,
     `Description: ${input.ticket.description.trim() || "No description provided."}`,
     `Labels: ${input.ticket.labels.length > 0 ? input.ticket.labels.join(", ") : "none"}`,
+    ...(input.intelligenceSummary?.source === "ai_assisted" && input.refinedBrief
+      ? [
+          "",
+          "## Refined Brief",
+          `Summary: ${input.refinedBrief.summary || "No refined summary provided."}`,
+          `Objective: ${input.refinedBrief.objective || "No refined objective provided."}`,
+          "Scope:",
+          formatList(input.refinedBrief.scope),
+          "Acceptance signals:",
+          formatList(input.refinedBrief.acceptanceCriteria),
+          "Constraints:",
+          formatList(input.refinedBrief.constraints),
+          "Open questions:",
+          formatList(input.refinedBrief.openQuestions)
+        ]
+      : []),
     "",
     "## Classification",
+    `Classification source: ${input.intelligenceSummary?.source === "ai_assisted" ? "ai-assisted" : "deterministic"}`,
     `Task type: ${executionPlan.classification.taskType}`,
     `Risk: ${executionPlan.classification.risk}`,
     `Complexity: ${executionPlan.classification.complexity}`,
@@ -115,7 +132,8 @@ export function buildAgentPrompt(input: PromptBuildInput): BuiltPrompt {
     prompt,
     executionPlan,
     sources,
-    contextSummary: sections.contextSummary
+    contextSummary: sections.contextSummary,
+    intelligenceSummary: input.intelligenceSummary
   };
 }
 

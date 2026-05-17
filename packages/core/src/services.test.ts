@@ -5,6 +5,7 @@ import {
   approvePromptReviewForStoredTicket,
   createDraftPullRequestForExecution,
   generateWorkerPlanForStoredTicket,
+  preparePromptReviewForStoredTicket,
   reopenStoredTicket,
   rejectPromptReviewForStoredTicket,
   resolveStoredTicket,
@@ -434,6 +435,7 @@ class InMemoryPromptReviewRepository implements PromptReviewRepository {
       sources: input.sources,
       contextSummary: input.contextSummary,
       classificationSnapshot: input.classificationSnapshot,
+      intelligenceSummary: input.intelligenceSummary,
       executionPlanSnapshot: input.executionPlanSnapshot,
       reviewerComment: input.reviewerComment,
       createdAt: timestamp,
@@ -1234,6 +1236,40 @@ test("startExecutionForStoredTicket blocks rejected prompt reviews until a new v
   assert.equal(result.promptReview?.id, rejectedPromptReview.id);
   assert.equal(result.promptReview?.status, "rejected");
   assert.equal(executionProvider.requests.length, 0);
+});
+
+test("approvePromptReviewForStoredTicket approves the latest stored version without regenerating a new prompt", async () => {
+  const ticket = createTicket("ticket-approve-stable", "Keep prompt approval stable");
+  const ticketRepository = new InMemoryTicketRepository(ticket);
+  const promptReviewRepository = new InMemoryPromptReviewRepository();
+  const planArtifactRepository = new InMemoryPlanArtifactRepository();
+
+  const seeded = await preparePromptReviewForStoredTicket(
+    ticketRepository,
+    promptReviewRepository,
+    createConfig("review_only"),
+    baseProjectContext,
+    ticket.id,
+    { planArtifactRepository }
+  );
+
+  const approved = await approvePromptReviewForStoredTicket(
+    ticketRepository,
+    promptReviewRepository,
+    createConfig("review_only"),
+    baseProjectContext,
+    ticket.id,
+    seeded.promptReview.id,
+    "Looks good.",
+    { planArtifactRepository }
+  );
+
+  const promptReviews = await promptReviewRepository.listByTicketId(ticket.id);
+
+  assert.equal(approved.id, seeded.promptReview.id);
+  assert.equal(approved.status, "approved");
+  assert.equal(promptReviews.length, 1);
+  assert.equal(promptReviews[0].id, seeded.promptReview.id);
 });
 
 test("startExecutionForStoredTicket generates a plan artifact before plan-then-implement work proceeds", async () => {

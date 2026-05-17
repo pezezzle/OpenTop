@@ -21,7 +21,7 @@ This directory contains the working documentation for OpenTop.
 - [Execution Flow](execution-flow.md): how work moves through OpenTop.
 - [Implementation Phased Plan](implementation/phased-plan.md): implementation path from local MVP to provider-neutral agentic control plane.
 - [OpenAI Codex Provider Design](implementation/openai-codex-provider-design.md): current product cut for Codex OAuth, `codex-cli`, and direct OpenAI API usage.
-- [AI-Assisted Classification And Prompt Refinement](implementation/ai-assisted-classification-and-prompt-refinement.md): proposed next architecture for replacing heuristic-only ticket understanding with model-assisted interpretation inside deterministic guardrails.
+- [AI-Assisted Classification And Prompt Refinement](implementation/ai-assisted-classification-and-prompt-refinement.md): current first implementation plus the next architecture steps for replacing heuristic-only ticket understanding with model-assisted interpretation inside deterministic guardrails.
 - [Web UI Architecture](implementation/web-ui-architecture.md): target navigation, component, and CSS/file organization for the Web app.
 - [Provider Recipes](provider-recipes.md): known-good provider and GitHub handoff setup examples.
 - [Database Migrations](database-migrations.md): local state upgrade strategy.

@@ -8,7 +8,8 @@ import type {
   PromptReview,
   PromptReviewCreateInput,
   PromptReviewRepository,
-  PromptReviewUpdateInput
+  PromptReviewUpdateInput,
+  TicketIntelligenceSummary
 } from "@opentop/core";
 import { createOpenTopSqliteContext, persistDatabase, type SqliteRepositoryOptions } from "./database.js";
 import { promptReviewsTable } from "./schema.js";
@@ -32,6 +33,7 @@ export class SqlitePromptReviewRepository implements PromptReviewRepository {
         sourcesJson: JSON.stringify(input.sources),
         contextSummaryJson: JSON.stringify(input.contextSummary),
         classificationJson: JSON.stringify(input.classificationSnapshot),
+        intelligenceJson: input.intelligenceSummary ? JSON.stringify(input.intelligenceSummary) : null,
         executionPlanJson: JSON.stringify(input.executionPlanSnapshot),
         reviewerComment: input.reviewerComment,
         createdAt: timestamp,
@@ -97,6 +99,10 @@ export class SqlitePromptReviewRepository implements PromptReviewRepository {
         classificationJson: input.classificationSnapshot
           ? JSON.stringify(input.classificationSnapshot)
           : existing.classificationJson,
+        intelligenceJson:
+          input.intelligenceSummary !== undefined
+            ? JSON.stringify(input.intelligenceSummary)
+            : existing.intelligenceJson,
         executionPlanJson: input.executionPlanSnapshot
           ? JSON.stringify(input.executionPlanSnapshot)
           : existing.executionPlanJson,
@@ -129,6 +135,9 @@ function mapPromptReviewRow(row: typeof promptReviewsTable.$inferSelect): Prompt
     sources: parseStringArray(row.sourcesJson),
     contextSummary: parseJson<PromptContextSummary>(row.contextSummaryJson),
     classificationSnapshot: parseJson<Classification>(row.classificationJson),
+    intelligenceSummary: row.intelligenceJson
+      ? parseJson<TicketIntelligenceSummary>(row.intelligenceJson)
+      : undefined,
     executionPlanSnapshot: parseJson<ExecutionPlan>(row.executionPlanJson),
     reviewerComment: row.reviewerComment ?? undefined,
     createdAt: row.createdAt,

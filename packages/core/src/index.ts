@@ -8,6 +8,7 @@ export * from "./project-context.js";
 export * from "./prompt-builder.js";
 export * from "./repositories.js";
 export * from "./services.js";
+export * from "./ticket-intelligence.js";
 export * from "./types.js";
 export * from "./work-item-execution.js";
 export * from "./worker-plan.js";

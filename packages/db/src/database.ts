@@ -87,6 +87,7 @@ export async function createOpenTopSqliteContext(
       sources_json TEXT NOT NULL,
       context_summary_json TEXT NOT NULL,
       classification_json TEXT NOT NULL,
+      intelligence_json TEXT,
       execution_plan_json TEXT NOT NULL,
       reviewer_comment TEXT,
       created_at TEXT NOT NULL,
@@ -226,6 +227,12 @@ function applySchemaMigrations(sqlite: Database): number {
       apply: () => {
         ensureTicketColumn(sqlite, "reopened_at", "TEXT");
       }
+    },
+    {
+      version: 6,
+      apply: () => {
+        ensurePromptReviewColumn(sqlite, "intelligence_json", "TEXT");
+      }
     }
   ];
 
@@ -289,6 +296,20 @@ function ensureWorkerPlanColumn(sqlite: Database, columnName: string, columnDefi
   }
 
   sqlite.exec(`ALTER TABLE worker_plans ADD COLUMN ${columnName} ${columnDefinition};`);
+}
+
+function ensurePromptReviewColumn(sqlite: Database, columnName: string, columnDefinition: string): void {
+  const result = sqlite.exec("PRAGMA table_info(prompt_reviews);");
+  const columns =
+    result[0]?.values
+      ?.map((row) => String(row[1]))
+      .filter((value) => value.length > 0) ?? [];
+
+  if (columns.includes(columnName)) {
+    return;
+  }
+
+  sqlite.exec(`ALTER TABLE prompt_reviews ADD COLUMN ${columnName} ${columnDefinition};`);
 }
 
 function setMetaValue(sqlite: Database, key: string, value: string): void {

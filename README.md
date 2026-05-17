@@ -21,6 +21,7 @@ This repository is now past the initial scaffold stage and operates as a local-f
 Today the product already supports:
 
 - local ticket storage and classification
+- AI-assisted ticket understanding and refined execution briefs during ticket and prompt preparation, with deterministic fallback
 - prompt, plan, and execution review flows
 - provider routing and runtime inspection
 - `codex-cli` execution as the preferred Codex-subscription path
@@ -32,7 +33,7 @@ The current focus is on polishing the local single-user product, tightening GitH
 ## MVP Scope
 
 - Support manual local tickets today, with GitHub Issue import planned.
-- Classify tickets by risk, complexity, labels, keywords, and affected areas.
+- Classify tickets through a deterministic baseline plus an AI-assisted interpretation pass when a suitable provider and model are available.
 - Suggest an agent profile, model tier, and execution mode.
 - Require approval for risky work.
 - Run agent executions through provider adapters.
@@ -179,13 +180,32 @@ x              run execution
 
 OpenTop treats the Web app as the primary user interface. The CLI remains for setup, automation, and power-user workflows.
 
+## AI-Assisted Ticket Understanding
+
+OpenTop now uses a two-layer ticket understanding model:
+
+- a deterministic baseline classifier in core
+- an AI-assisted pass that can refine task type, risk, complexity, affected areas, execution mode, and the working brief
+
+Today the AI-assisted result is stored together with the generated prompt-review version for a ticket. That means the first prompt you review can already include:
+
+- `Classification source: ai-assisted`
+- a refined engineering brief
+- AI-assisted reasoning for model, profile, and execution-mode choice
+
+Current limitations:
+
+- follow-up runs still reconstruct context from stored artifacts rather than continuing a persistent Codex conversation
+- prompt regeneration notes are not yet fed back into the AI refinement step as first-class instructions
+- older tickets created before the new flow may still carry deterministic or mixed prompt-review history
+
 ## Daily Workflow
 
 The current intended daily flow is:
 
 ```text
 ticket
--> classify
+-> classify and refine brief
 -> prompt / plan review when needed
 -> run execution
 -> review diff, checks, and risk

@@ -12,10 +12,12 @@ OpenTop currently has:
 - a Next.js Web UI
 - a compact app-shell Web layout with persistent navigation for Board, Tickets, Executions, and Settings
 - core domain types and services
-- rule-based ticket classification
+- deterministic ticket classification baseline in core
+- AI-assisted ticket classification and refined brief generation during ticket/prompt preparation when a suitable provider/model is available
 - expanded ticket classification with task categories, detected signals, affected areas, risk/complexity scoring, and provider-aware model routing
 - layered prompt context with project memory, active learned/user profiles, and prompt-budget limits
 - prompt review versioning with approval, rejection, regeneration, and execution gating
+- prompt review stability that approves or rejects the latest stored version instead of silently generating a newer prompt during approval
 - plan artifact versioning with approval, rejection, regeneration, and implementation gating
 - worker-plan versioning with dependency-aware work-item decomposition from approved plans
 - sequential worker-plan execution with per-work-item executions, dependency release, and integration summaries
@@ -32,6 +34,7 @@ OpenTop currently has:
 - local SQLite persistence through `sql.js` and Drizzle
 - stored tickets
 - stored executions with prompt snapshots, provider logs, and changed files
+- stored prompt-review intelligence summaries, including AI classification source, reasoning, confidence, missing-information notes, and refined brief content
 - stored review-output artifacts with `output_ready`, output kind, and output text
 - branch policy resolution
 - project and user config reads/writes for `execution.defaultBranchPolicy`
@@ -57,8 +60,9 @@ The working local flow is:
 
 ```text
 create ticket
--> list ticket
+-> immediately prepare the first prompt-review version
 -> classify ticket
+-> refine brief when AI assistance is available
 -> build controlled prompt
 -> review and approve prompt when required
 -> generate and review plan when the workflow is plan-first
@@ -171,7 +175,7 @@ The Web UI currently has:
 - `/`: execution board
 - `/tickets`: ticket list
 - `/tickets/[ticketId]`: ticket detail, classification, prompt preview, prompt review status, prompt history, prompt diff, plan review status, plan history, plan diff, worker plan generation/history, work-item inspection, executions, and explicit ticket-resolution controls
-- `/tickets/[ticketId]`: classification now includes task type, detected signals, provider/model suggestion, reasoning, and prompt approval requirement
+- `/tickets/[ticketId]`: classification now includes task type, detected signals, provider/model suggestion, reasoning, prompt approval requirement, and when available an AI-assisted refined brief plus classification source
 - `/executions`: execution list
 - `/executions/[executionId]`: execution detail, prompt snapshot, structured review output, checks, execution logs, changed files, diff review, risk summary, draft/ready/merged PR state, review decision actions, and draft PR creation/output
 - `/settings`: branch policy settings plus provider health, GitHub handoff status, compatibility warnings, and OAuth connection status
@@ -187,8 +191,10 @@ OpenTop does not yet:
 - stream execution logs
 - apply API-provider output as local workspace patches
 - runtime adapters for local-model providers such as Ollama
-- AI-assisted classifier pass on top of the deterministic routing baseline
-- AI-assisted prompt refinement between ticket input and controlled prompt assembly
+- persist AI classification/refinement artifacts as a dedicated first-class artifact separate from prompt-review storage
+- feed prompt-regeneration notes back into the AI refinement step as structured follow-up instructions
+- provide persistent multi-run Codex conversation threads or session reuse per ticket
+- compact iterative ticket context automatically for cheaper follow-up runs
 - parallel worker execution across multiple work items
 - support multi-user operation
 - support cloud workers
@@ -213,6 +219,8 @@ The global `opentop` command is currently a local development link to the built 
 OAuth credentials now stay outside the repository in `~/.opentop/auth/`. OpenRouter is the fully supported hosted OAuth runtime path today. OpenAI Codex OAuth is implemented as a real connect/disconnect flow, but OpenTop intentionally keeps it out of the supported runtime set and points users toward `codex-cli` or `openai-api` instead. Providers that only support API keys today, such as Anthropic, remain explicitly unsupported for OAuth in OpenTop rather than appearing half-connected.
 
 The local database now carries a tracked schema version in `opentop_meta`, and package-level tests cover the core orchestration path plus provider, git, and database hardening checks.
+
+AI-assisted ticket understanding is now live for the create/classify/prompt/run path. OpenTop still keeps the deterministic classifier as the baseline and fallback. The AI-assisted result is currently persisted on the prompt-review record rather than in a dedicated standalone artifact, which is good enough for a first working version but not the final shape.
 
 OpenAI Codex OAuth can now be connected and inspected, but OpenTop intentionally does not treat it as a supported execution runtime. For ChatGPT/Codex subscription access, prefer `codex-cli`. For direct OpenAI API execution, prefer `openai-api` with an API key.
 

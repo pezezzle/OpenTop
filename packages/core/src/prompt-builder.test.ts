@@ -121,3 +121,28 @@ test("buildAgentPrompt includes active profile influences within budget", () => 
   assert.match(built.prompt, /Selected Context Profile Guidance/);
   assert.match(built.prompt, /Profile mode: project-first/);
 });
+
+test("buildAgentPrompt includes the refined brief when AI assistance is available", () => {
+  const built = buildAgentPrompt({
+    ticket,
+    config,
+    projectContext,
+    refinedBrief: {
+      summary: "Clarify branch context in the board header.",
+      objective: "Explain current branch, default branch, and execution history in simpler language.",
+      scope: ["Update the board summary copy.", "Keep the layout compact."],
+      acceptanceCriteria: ["Current branch is easier to distinguish from default branch."],
+      constraints: ["Do not redesign unrelated settings screens."],
+      openQuestions: []
+    },
+    intelligenceSummary: {
+      source: "ai_assisted",
+      confidence: "medium",
+      missingInformation: []
+    }
+  });
+
+  assert.match(built.prompt, /## Refined Brief/);
+  assert.match(built.prompt, /Clarify branch context in the board header/);
+  assert.match(built.prompt, /Classification source: ai-assisted/);
+});

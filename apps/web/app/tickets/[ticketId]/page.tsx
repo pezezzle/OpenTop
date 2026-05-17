@@ -382,6 +382,8 @@ export default async function TicketDetailPage({
     const planDiff = currentPlanArtifact ? buildDiff(currentPlanArtifact.rawOutput, previousPlanArtifact?.rawOutput) : [];
     const blockedNotice = buildBlockedNotice(query);
     const usesPlanWorkflow = planWorkflowEnabled(detail);
+    const intelligenceSummary = detail.prompt.intelligenceSummary;
+    const refinedBrief = intelligenceSummary?.refinedBrief;
     const approvedPlanArtifact = latestApprovedPlanArtifact(detail);
     const currentWorkerPlan = detail.workerPlan ?? undefined;
     const workerPlanNeedsRefresh = approvedPlanArtifact
@@ -661,6 +663,77 @@ export default async function TicketDetailPage({
               </div>
             </article>
 
+            {refinedBrief ? (
+              <article className="panel panel-full">
+                <h2>Refined Brief</h2>
+                <p className="subline">
+                  OpenTop rewrote the raw ticket into a cleaner execution brief before building the controlled prompt.
+                </p>
+                <div className="review-grid">
+                  <section className="review-section">
+                    <h3>Summary</h3>
+                    <p>{refinedBrief.summary || "No summary provided."}</p>
+                    <h3>Objective</h3>
+                    <p>{refinedBrief.objective || "No explicit objective provided."}</p>
+                  </section>
+
+                  <section className="review-section">
+                    <h3>Scope</h3>
+                    <ul className="stack-list">
+                      {refinedBrief.scope.length === 0 ? <li>none</li> : refinedBrief.scope.map((entry) => <li key={entry}>{entry}</li>)}
+                    </ul>
+                    <h3>Acceptance</h3>
+                    <ul className="stack-list">
+                      {refinedBrief.acceptanceCriteria.length === 0 ? (
+                        <li>none</li>
+                      ) : (
+                        refinedBrief.acceptanceCriteria.map((entry) => <li key={entry}>{entry}</li>)
+                      )}
+                    </ul>
+                  </section>
+                </div>
+                {(refinedBrief.constraints.length > 0 || refinedBrief.openQuestions.length > 0 || intelligenceSummary?.missingInformation.length) ? (
+                  <details className="disclosure">
+                    <summary>Constraints and gaps</summary>
+                    <div className="disclosure-body">
+                      <div className="review-grid">
+                        <section className="review-section">
+                          <h3>Constraints</h3>
+                          <ul className="stack-list">
+                            {refinedBrief.constraints.length === 0 ? (
+                              <li>none</li>
+                            ) : (
+                              refinedBrief.constraints.map((entry) => <li key={entry}>{entry}</li>)
+                            )}
+                          </ul>
+                        </section>
+                        <section className="review-section">
+                          <h3>Open Questions</h3>
+                          <ul className="stack-list">
+                            {refinedBrief.openQuestions.length === 0 ? (
+                              <li>none</li>
+                            ) : (
+                              refinedBrief.openQuestions.map((entry) => <li key={entry}>{entry}</li>)
+                            )}
+                          </ul>
+                        </section>
+                        <section className="review-section">
+                          <h3>Missing Information</h3>
+                          <ul className="stack-list">
+                            {intelligenceSummary?.missingInformation.length ? (
+                              intelligenceSummary.missingInformation.map((entry) => <li key={entry}>{entry}</li>)
+                            ) : (
+                              <li>none</li>
+                            )}
+                          </ul>
+                        </section>
+                      </div>
+                    </div>
+                  </details>
+                ) : null}
+              </article>
+            ) : null}
+
             <article className="panel panel-full">
               <h2>Prompt Details</h2>
               <p className="subline">The live ticket view stays compact; open these only when you need the raw prompt or history.</p>
@@ -816,6 +889,12 @@ export default async function TicketDetailPage({
                 OpenTop currently wants to handle this as {detail.classification.taskType} work with a{" "}
                 {detail.classification.risk}-risk, {detail.classification.complexity}-complexity path.
               </p>
+              {intelligenceSummary ? (
+                <p className="subline">
+                  Classification source: {intelligenceSummary.source === "ai_assisted" ? "AI-assisted" : "deterministic"}
+                  {intelligenceSummary.confidence ? ` · confidence ${intelligenceSummary.confidence}` : ""}
+                </p>
+              ) : null}
               <dl className="stacked-meta">
                 <div>
                   <dt>Profile</dt>
